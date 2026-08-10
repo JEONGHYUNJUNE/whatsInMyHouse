@@ -66,6 +66,14 @@ supabase/migrations/20260810_003_username_email_hook.sql
 supabase/migrations/20260810_004_empty_kitchen_onboarding.sql
 ```
 
+추천 레시피 데이터는 아래 마이그레이션을 순서대로 실행합니다.
+
+```text
+supabase/migrations/20260810_005_more_simple_recipes.sql
+supabase/migrations/20260810_006_expand_simple_recipes.sql
+supabase/migrations/20260811_007_add_korean_recipe_collection.sql
+```
+
 SQL 실행 후 Supabase Dashboard에서 다음 Hook을 활성화합니다.
 
 ```text
@@ -102,6 +110,12 @@ npm run dev
 ```bash
 npm run build
 ```
+
+## Git 작업 방식
+
+- 일반 요청에서는 변경사항 구현과 빌드 검증까지만 진행합니다.
+- 커밋과 원격 푸시는 명시적으로 요청받았을 때만 진행합니다.
+- 기본 원격 브랜치는 `origin/main`입니다.
 
 ## 데이터 안전
 
