@@ -183,8 +183,11 @@ function LoginPage({ onSignIn, onSignUp, onDemo }: { onSignIn: (username: string
 function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem }: { data: AppData; query: string; setQuery: (v: string) => void; goSearch: () => void; onAdd: (spaceId?: string) => void; onSelectItem: (item: InventoryItem) => void }) {
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null)
   const [spaceView, setSpaceView] = useState<'list' | 'map'>('list')
+  const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null)
   const urgent = [...data.items].sort((a, b) => getDaysLeft(a) - getDaysLeft(b)).filter((item) => getDaysLeft(item) <= 7)
-  const match = getRecipeMatch(data.recipes[0], data.items)
+  const recommendedRecipes = getRecommendedRecipes(data.recipes, data.items)
+  const dailyRecipe = recommendedRecipes.length ? recommendedRecipes[Math.floor(Date.now() / 86400000) % Math.min(3, recommendedRecipes.length)] : undefined
+  const match = getRecipeMatch(dailyRecipe, data.items)
   const selectedSpace = data.spaces.find((space) => space.id === selectedSpaceId) || null
   const selectedItems = selectedSpace ? data.items.filter((item) => item.storage_space_id === selectedSpace.id) : []
   const selectSpace = (spaceId: string) => setSelectedSpaceId((current) => current === spaceId ? null : spaceId)
@@ -207,7 +210,8 @@ function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem }: { 
     <SectionTitle title="우리 집 보관공간" action={`${data.spaces.length}개`} />
     {spaces}
     <SectionTitle title="오늘의 냉장고 털기" action="보유 재료 기준" />
-    <article className="recipe-hero"><div className="recipe-art">🍲</div><div><span className="eyebrow">임박 재료 우선</span><h2>{data.recipes[0]?.title || '첫 레시피를 등록해 보세요'}</h2><p>{data.recipes[0]?.summary}</p><div className="match-row"><Check /> 집에 있는 재료 {match.have}개</div></div><ChevronRight /></article>
+    <article className="recipe-hero clickable" role="button" tabIndex={0} onClick={() => dailyRecipe && setSelectedRecipe(dailyRecipe)} onKeyDown={(event) => { if (event.key === 'Enter' && dailyRecipe) setSelectedRecipe(dailyRecipe) }}><div className="recipe-art">🍲</div><div><span className="eyebrow">임박 재료 우선 · 매일 새로운 추천</span><h2>{dailyRecipe?.title || '첫 레시피를 등록해 보세요'}</h2><p>{dailyRecipe?.summary}</p><div className="match-row"><Check /> 집에 있는 재료 {match.have}개</div></div><ChevronRight /></article>
+    {selectedRecipe && <RecipeDetail recipe={selectedRecipe} items={data.items} saved={data.savedRecipeIds.includes(selectedRecipe.id)} onClose={() => setSelectedRecipe(null)} />}
   </>
 }
 
@@ -426,7 +430,13 @@ function ConsumptionScreen({ data, demoMode, onChanged }: { data: AppData; demoM
 function RecipeScreen({ data, profileId, demoMode, onChanged }: { data: AppData; profileId: string; demoMode: boolean; onChanged: () => Promise<void> }) {
   const [selected, setSelected] = useState<Recipe | null>(null)
   const [savedOnly, setSavedOnly] = useState(false)
-  const visibleRecipes = savedOnly ? data.recipes.filter((recipe) => data.savedRecipeIds.includes(recipe.id)) : data.recipes
+  const [exploring, setExploring] = useState(false)
+  const [query, setQuery] = useState('')
+  const recommended = getRecommendedRecipes(data.recipes, data.items)
+  const dailyRecipe = recommended.length ? recommended[Math.floor(Date.now() / 86400000) % Math.min(3, recommended.length)] : undefined
+  const baseRecipes = savedOnly ? data.recipes.filter((recipe) => data.savedRecipeIds.includes(recipe.id)) : recommended
+  const searchedRecipes = baseRecipes.filter((recipe) => `${recipe.title} ${recipe.summary || ''} ${(recipe.ingredients || []).map((ingredient) => ingredient.ingredient_name).join(' ')}`.toLowerCase().includes(query.toLowerCase()))
+  const visibleRecipes = exploring || savedOnly ? searchedRecipes : searchedRecipes.slice(0, 4)
   const toggleSave = async (recipe: Recipe) => {
     if (demoMode) return alert('미리보기에서는 저장되지 않아요.')
     await toggleSavedRecipe(profileId, recipe.id, data.savedRecipeIds.includes(recipe.id)); await onChanged()
@@ -434,11 +444,12 @@ function RecipeScreen({ data, profileId, demoMode, onChanged }: { data: AppData;
   if (!data.recipes.length) return <><div className="page-heading"><div><p>있는 재료부터 맛있게</p><h1>레시피</h1></div></div><div className="no-results"><BookOpen /><p>등록된 레시피가 없어요.</p></div></>
   return <>
     <div className="page-heading"><div><p>있는 재료부터 맛있게</p><h1>레시피</h1></div><button className={`icon-text ${savedOnly ? 'selected' : ''}`} onClick={() => setSavedOnly((current) => !current)}><BookOpen /> 저장됨 {data.savedRecipeIds.length}</button></div>
-    <article className="today-recipe"><div><span>오늘의 추천 레시피</span><h2>{data.recipes[0]?.title}</h2><p>{data.recipes[0]?.summary}</p><button onClick={() => setSelected(data.recipes[0])}>레시피 보기</button></div><div>🥘</div></article>
-    <SectionTitle title="재료 보유 현황" action="내 식재료 기준" />
-    <div className="ingredient-summary"><div><b>{getRecipeMatch(data.recipes[0], data.items).have}</b><span>집에 있어요</span></div><div><b>{getRecipeMatch(data.recipes[0], data.items).urgent}</b><span>곧 상할 재료</span></div><div><b>{getRecipeMatch(data.recipes[0], data.items).missing}</b><span>추가로 필요</span></div></div>
-    <SectionTitle title="추천 레시피" action={`${data.recipes.length}개`} />
+    {!exploring && !savedOnly && dailyRecipe && <article className="today-recipe"><div><span>오늘의 추천 레시피 · 매일 변경</span><h2>{dailyRecipe.title}</h2><p>{dailyRecipe.summary}</p><button onClick={() => setSelected(dailyRecipe)}>레시피 보기</button></div><div>🥘</div></article>}
+    {(exploring || savedOnly) && <label className="global-search recipe-search"><Search /><input autoFocus={exploring} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="레시피 이름이나 재료로 검색" />{query && <button onClick={() => setQuery('')}><X /></button>}</label>}
+    {!exploring && !savedOnly && dailyRecipe && <><SectionTitle title="재료 보유 현황" action="내 식재료 기준" /><div className="ingredient-summary"><div><b>{getRecipeMatch(dailyRecipe, data.items).have}</b><span>집에 있어요</span></div><div><b>{getRecipeMatch(dailyRecipe, data.items).urgent}</b><span>곧 상할 재료</span></div><div><b>{getRecipeMatch(dailyRecipe, data.items).missing}</b><span>추가로 필요</span></div></div></>}
+    <SectionTitle title={savedOnly ? '저장한 레시피' : exploring ? '레시피 탐색' : '추천 레시피'} action={`${searchedRecipes.length}개`} />
     <div className="recipe-list">{visibleRecipes.length ? visibleRecipes.map((recipe) => { const match = getRecipeMatch(recipe, data.items); return <div className="recipe-list-row" key={recipe.id}><button onClick={() => setSelected(recipe)}><span>🍳</span><div><h3>{recipe.title}</h3><p>{recipe.summary}</p><small><Clock3 /> {recipe.cook_minutes || '-'}분 · 재료 {match.have}/{match.total}</small></div><ChevronRight /></button><button className={data.savedRecipeIds.includes(recipe.id) ? 'saved' : ''} aria-label={`${recipe.title} 저장`} onClick={() => void toggleSave(recipe)}><BookOpen /></button></div> }) : <div className="no-results"><BookOpen /><p>저장한 레시피가 없어요.</p></div>}</div>
+    {!savedOnly && searchedRecipes.length > 4 && <button className="recipe-explore-button" onClick={() => { setExploring((current) => !current); setQuery('') }}>{exploring ? '추천만 보기' : `레시피 더보기 · ${searchedRecipes.length - 4}개`} <ChevronRight /></button>}
     {selected && <RecipeDetail recipe={selected} items={data.items} saved={data.savedRecipeIds.includes(selected.id)} onToggleSave={() => void toggleSave(selected)} onClose={() => setSelected(null)} />}
   </>
 }
@@ -547,8 +558,8 @@ function BarcodeCameraScanner({ onDetected }: { onDetected: (barcode: string) =>
   </section>
 }
 
-function RecipeDetail({ recipe, items, saved, onToggleSave, onClose }: { recipe: Recipe; items: InventoryItem[]; saved: boolean; onToggleSave: () => void; onClose: () => void }) {
-  return <div className="sheet-backdrop"><section className="recipe-detail"><div className="sheet-head"><div><p>{recipe.cook_minutes}분 · {recipe.difficulty}</p><h2>{recipe.title}</h2></div><button onClick={onClose}><X /></button></div><button className={`recipe-save-button ${saved ? 'saved' : ''}`} onClick={onToggleSave}><BookOpen /> {saved ? '저장됨' : '레시피 저장'}</button><p>{recipe.summary}</p><h3>재료</h3>{recipe.ingredients?.map((ingredient) => { const have = items.some((item) => normalize(item.product_name).includes(normalize(ingredient.ingredient_name))); return <div className={`recipe-ingredient ${have ? 'have' : ''}`} key={ingredient.ingredient_name}><span>{have ? <Check /> : <Plus />}</span><b>{ingredient.ingredient_name}</b><small>{ingredient.amount} · {have ? '집에 있어요' : '추가로 필요해요'}</small></div> })}<h3>만드는 법</h3><ol>{recipe.instructions.map((step, index) => <li key={step}><span>{index + 1}</span>{step}</li>)}</ol></section></div>
+function RecipeDetail({ recipe, items, saved, onToggleSave, onClose }: { recipe: Recipe; items: InventoryItem[]; saved: boolean; onToggleSave?: () => void; onClose: () => void }) {
+  return <div className="sheet-backdrop"><section className="recipe-detail"><div className="sheet-head"><div><p>{recipe.cook_minutes}분 · {recipe.difficulty}</p><h2>{recipe.title}</h2></div><button onClick={onClose}><X /></button></div>{onToggleSave && <button className={`recipe-save-button ${saved ? 'saved' : ''}`} onClick={onToggleSave}><BookOpen /> {saved ? '저장됨' : '레시피 저장'}</button>}<p>{recipe.summary}</p><h3>재료</h3>{recipe.ingredients?.map((ingredient) => { const have = items.some((item) => normalize(item.product_name).includes(normalize(ingredient.ingredient_name))); return <div className={`recipe-ingredient ${have ? 'have' : ''}`} key={ingredient.ingredient_name}><span>{have ? <Check /> : <Plus />}</span><b>{ingredient.ingredient_name}</b><small>{ingredient.amount} · {have ? '집에 있어요' : '추가로 필요해요'}</small></div> })}<h3>만드는 법</h3><ol>{recipe.instructions.map((step, index) => <li key={step}><span>{index + 1}</span>{step}</li>)}</ol></section></div>
 }
 
 function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, onSignOut, onGoMap, onGoRecipes, onOpenNotifications, onChanged }: { profile: Profile | null; kitchenName: string; kitchenId: string; demoMode: boolean; onExitDemo: () => void; onSignOut: () => Promise<void>; onGoMap: () => void; onGoRecipes: () => void; onOpenNotifications: () => void; onChanged: () => Promise<void> }) {
@@ -601,5 +612,6 @@ function FullLoader({ compact = false }: { compact?: boolean }) { return <div cl
 function dateLabel(item: InventoryItem) { const days = getDaysLeft(item); if (!Number.isFinite(days)) return '기한 미설정'; if (days < 0) return `${Math.abs(days)}일 지남`; if (days === 0) return '오늘까지'; return `${days}일 남음` }
 function normalize(value: string) { return value.replace(/\s/g, '').toLowerCase() }
 function getRecipeMatch(recipe: Recipe | undefined, items: InventoryItem[]) { const ingredients = recipe?.ingredients || []; const matches = ingredients.map((ingredient) => items.find((item) => normalize(item.product_name).includes(normalize(ingredient.ingredient_name)) || normalize(ingredient.ingredient_name).includes(normalize(item.product_name)))); return { total: ingredients.length, have: matches.filter(Boolean).length, urgent: matches.filter((item) => item && getDaysLeft(item) <= 3).length, missing: matches.filter((item) => !item).length } }
+function getRecommendedRecipes(recipes: Recipe[], items: InventoryItem[]) { return [...recipes].sort((a, b) => { const left = getRecipeMatch(a, items); const right = getRecipeMatch(b, items); return (right.have * 3 + right.urgent * 2 - right.missing) - (left.have * 3 + left.urgent * 2 - left.missing) || (a.cook_minutes || 999) - (b.cook_minutes || 999) }) }
 
 export default App
