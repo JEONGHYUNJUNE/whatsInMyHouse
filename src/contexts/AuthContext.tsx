@@ -11,6 +11,7 @@ type AuthValue = {
   signInWithCredentials: (username: string, password: string) => Promise<void>
   signUpWithCredentials: (username: string, password: string, nickname: string) => Promise<void>
   signOut: () => Promise<void>
+  refreshProfile: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthValue | null>(null)
@@ -101,7 +102,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut()
   }
 
-  return <AuthContext.Provider value={{ session, profile, loading, signInWithGoogle, signInWithCredentials, signUpWithCredentials, signOut }}>{children}</AuthContext.Provider>
+  const refreshProfile = async () => {
+    const { data } = await supabase.auth.getSession()
+    await loadProfile(data.session)
+  }
+
+  return <AuthContext.Provider value={{ session, profile, loading, signInWithGoogle, signInWithCredentials, signUpWithCredentials, signOut, refreshProfile }}>{children}</AuthContext.Provider>
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

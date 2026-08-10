@@ -26,4 +26,6 @@ export const demoData: AppData = {
     { id: 'recipe-1', title: '두부김치 볶음', summary: '임박한 두부를 가장 맛있게 비우는 15분 요리', image_url: null, cook_minutes: 15, difficulty: '쉬움', instructions: ['두부의 물기를 제거해 노릇하게 굽습니다.', '김치와 양파를 볶습니다.', '두부와 함께 담아냅니다.'], ingredients: [{ ingredient_name: '두부', amount: '1모', is_optional: false }, { ingredient_name: '김치', amount: '한 줌', is_optional: false }, { ingredient_name: '양파', amount: '1/2개', is_optional: true }] },
     { id: 'recipe-2', title: '토마토 달걀볶음', summary: '무르기 전 토마토로 만드는 빠른 한 끼', image_url: null, cook_minutes: 12, difficulty: '쉬움', instructions: ['달걀을 먼저 부드럽게 익힙니다.', '토마토를 센 불에 볶습니다.', '달걀을 다시 넣고 간합니다.'], ingredients: [{ ingredient_name: '토마토', amount: '2개', is_optional: false }, { ingredient_name: '달걀', amount: '3개', is_optional: false }] },
   ],
+  savedRecipeIds: [],
+  notifications: [],
 }

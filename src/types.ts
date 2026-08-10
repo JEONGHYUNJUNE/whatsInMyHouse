@@ -64,3 +64,12 @@ export type Recipe = {
   instructions: string[]
   ingredients?: { ingredient_name: string; amount: string | null; is_optional: boolean }[]
 }
+
+export type AppNotification = {
+  id: string
+  profile_id: string
+  title: string
+  message: string
+  is_read: boolean
+  created_at: string
+}

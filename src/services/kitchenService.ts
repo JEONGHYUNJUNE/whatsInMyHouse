@@ -1,11 +1,13 @@
 import { supabase } from '../lib/supabase'
-import type { InventoryItem, Kitchen, Recipe, StorageSpace } from '../types'
+import type { AppNotification, InventoryItem, Kitchen, Recipe, StorageSpace } from '../types'
 
 export type AppData = {
   kitchen: Kitchen
   spaces: StorageSpace[]
   items: InventoryItem[]
   recipes: Recipe[]
+  savedRecipeIds: string[]
+  notifications: AppNotification[]
 }
 
 export async function loadAppData(profileId: string): Promise<AppData> {
@@ -20,7 +22,7 @@ export async function loadAppData(profileId: string): Promise<AppData> {
   if (membershipError) throw membershipError
   const kitchen = membership.kitchens as unknown as Kitchen
 
-  const [spacesResult, itemsResult, recipesResult] = await Promise.all([
+  const [spacesResult, itemsResult, recipesResult, savedRecipesResult, notificationsResult] = await Promise.all([
     supabase.from('storage_spaces').select('*').eq('kitchen_id', kitchen.id).order('sort_order'),
     supabase
       .from('inventory_items')
@@ -33,11 +35,15 @@ export async function loadAppData(profileId: string): Promise<AppData> {
       .select('*, ingredients:recipe_ingredients(ingredient_name, amount, is_optional)')
       .eq('is_active', true)
       .order('created_at', { ascending: false }),
+    supabase.from('saved_recipes').select('recipe_id').eq('profile_id', profileId),
+    supabase.from('notifications').select('id, profile_id, title, message, is_read, created_at').eq('profile_id', profileId).order('created_at', { ascending: false }).limit(30),
   ])
 
   if (spacesResult.error) throw spacesResult.error
   if (itemsResult.error) throw itemsResult.error
   if (recipesResult.error) throw recipesResult.error
+  if (savedRecipesResult.error) throw savedRecipesResult.error
+  if (notificationsResult.error) throw notificationsResult.error
 
   const items = (itemsResult.data || []) as InventoryItem[]
   const spaces = (spacesResult.data || []).map((space) => ({
@@ -46,7 +52,14 @@ export async function loadAppData(profileId: string): Promise<AppData> {
     expiring_count: items.filter((item) => item.storage_space_id === space.id && getDaysLeft(item) <= 3).length,
   })) as StorageSpace[]
 
-  return { kitchen, spaces, items, recipes: (recipesResult.data || []) as Recipe[] }
+  return {
+    kitchen,
+    spaces,
+    items,
+    recipes: (recipesResult.data || []) as Recipe[],
+    savedRecipeIds: (savedRecipesResult.data || []).map((row) => row.recipe_id),
+    notifications: (notificationsResult.data || []) as AppNotification[],
+  }
 }
 
 export function getDaysLeft(item: InventoryItem) {
@@ -81,6 +94,35 @@ export async function createStorageSpace(input: Partial<StorageSpace> & Pick<Sto
   const { data, error } = await supabase.from('storage_spaces').insert(input).select().single()
   if (error) throw error
   return data
+}
+
+export async function updateStorageSpace(spaceId: string, input: Partial<StorageSpace>) {
+  const { data, error } = await supabase.from('storage_spaces').update(input).eq('id', spaceId).select().single()
+  if (error) throw error
+  return data
+}
+
+export async function updateKitchenName(kitchenId: string, name: string) {
+  const { error } = await supabase.from('kitchens').update({ name }).eq('id', kitchenId)
+  if (error) throw error
+}
+
+export async function updateProfileNickname(profileId: string, nickname: string) {
+  const { error } = await supabase.from('profiles').update({ nickname }).eq('id', profileId)
+  if (error) throw error
+}
+
+export async function toggleSavedRecipe(profileId: string, recipeId: string, isSaved: boolean) {
+  const query = isSaved
+    ? supabase.from('saved_recipes').delete().eq('profile_id', profileId).eq('recipe_id', recipeId)
+    : supabase.from('saved_recipes').insert({ profile_id: profileId, recipe_id: recipeId })
+  const { error } = await query
+  if (error) throw error
+}
+
+export async function markNotificationsRead(profileId: string) {
+  const { error } = await supabase.from('notifications').update({ is_read: true }).eq('profile_id', profileId).eq('is_read', false)
+  if (error) throw error
 }
 
 export async function updateStorageSpaces(spaces: StorageSpace[]) {
