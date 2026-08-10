@@ -34,6 +34,7 @@ export type InventoryItem = {
   id: string
   kitchen_id: string
   storage_space_id: string
+  catalog_product_id?: string | null
   created_by?: string | null
   product_name: string
   alias: string | null

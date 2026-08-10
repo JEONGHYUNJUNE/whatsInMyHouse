@@ -3,13 +3,13 @@ import type { IScannerControls } from '@zxing/browser'
 import {
   Apple, Bell, BookOpen, Box, Camera, Check, ChevronRight, CircleUserRound,
   Clock3, DoorOpen, Home, LayoutGrid, List, LoaderCircle, LogOut, Map, PackageCheck, PenLine,
-  PanelsTopLeft, Plus, Refrigerator, ScanLine, Search, Settings2, Snowflake, Sparkles, X,
+  PanelsTopLeft, Plus, Refrigerator, ScanLine, Search, Settings2, Snowflake, Sparkles, UtensilsCrossed, X,
 } from 'lucide-react'
 import { useAuth } from './contexts/AuthContext'
 import { demoData } from './demoData'
 import { isSupabaseConfigured } from './lib/supabase'
 import {
-  createInventoryItem, createStorageSpace, deleteStorageSpace, finishInventoryItem, getDaysLeft, loadAppData, lookupBarcode,
+  consumeInventoryItems, createInventoryItem, createStorageSpace, deleteStorageSpace, finishInventoryItem, getDaysLeft, loadAppData, lookupBarcode,
   markNotificationsRead, moveInventoryItem, toggleSavedRecipe, updateKitchenName, updateProfileNickname, updateStorageSpace,
   updateInventoryItem, updateStorageSpaces, type AppData,
 } from './services/kitchenService'
@@ -17,7 +17,7 @@ import { getInventoryImageUrl, uploadInventoryImage } from './services/imageServ
 import type { AppNotification, InventoryItem, Profile, Recipe, StorageSpace } from './types'
 import './onboarding.css'
 
-type Tab = 'home' | 'map' | 'search' | 'recipes' | 'profile'
+type Tab = 'home' | 'map' | 'search' | 'consume' | 'recipes' | 'profile'
 
 const spaceIcons: Record<string, React.ReactNode> = {
   fridge: <Refrigerator />, freezer: <Snowflake />, pantry: <LayoutGrid />,
@@ -80,10 +80,11 @@ function App() {
       ) : (
         <main className="screen">
           {tab === 'home' && <HomeScreen data={data} query={query} setQuery={setQuery} goSearch={() => setTab('search')} onSelectItem={setSelectedItem} onAdd={(spaceId) => { setAddTargetSpaceId(spaceId || null); setAddOpen(true) }} />}
-          {tab === 'map' && <KitchenMap data={data} demoMode={demoMode} onSelectItem={setSelectedItem} onChanged={refresh} />}
+          {tab === 'map' && <KitchenMap data={data} demoMode={demoMode} onSelectItem={setSelectedItem} onAdd={(spaceId) => { setAddTargetSpaceId(spaceId); setAddOpen(true) }} onChanged={refresh} />}
           {tab === 'search' && <SearchScreen data={data} query={query} setQuery={setQuery} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onSelectItem={setSelectedItem} onChanged={refresh} />}
+          {tab === 'consume' && <ConsumptionScreen data={data} demoMode={demoMode} onChanged={refresh} />}
           {tab === 'recipes' && <RecipeScreen data={data} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onChanged={refresh} />}
-          {tab === 'profile' && <ProfileScreen profile={profile} kitchenName={data.kitchen.name} kitchenId={data.kitchen.id} demoMode={demoMode} onExitDemo={() => setDemoMode(false)} onSignOut={signOut} onGoMap={() => setTab('map')} onOpenNotifications={() => setNotificationsOpen(true)} onChanged={async () => { await refreshProfile(); await refresh() }} />}
+          {tab === 'profile' && <ProfileScreen profile={profile} kitchenName={data.kitchen.name} kitchenId={data.kitchen.id} demoMode={demoMode} onExitDemo={() => setDemoMode(false)} onSignOut={signOut} onGoMap={() => setTab('map')} onGoRecipes={() => setTab('recipes')} onOpenNotifications={() => setNotificationsOpen(true)} onChanged={async () => { await refreshProfile(); await refresh() }} />}
         </main>
       )}
 
@@ -181,12 +182,15 @@ function LoginPage({ onSignIn, onSignUp, onDemo }: { onSignIn: (username: string
 
 function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem }: { data: AppData; query: string; setQuery: (v: string) => void; goSearch: () => void; onAdd: (spaceId?: string) => void; onSelectItem: (item: InventoryItem) => void }) {
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null)
+  const [spaceView, setSpaceView] = useState<'list' | 'map'>('list')
   const urgent = [...data.items].sort((a, b) => getDaysLeft(a) - getDaysLeft(b)).filter((item) => getDaysLeft(item) <= 3)
   const match = getRecipeMatch(data.recipes[0], data.items)
   const selectedSpace = data.spaces.find((space) => space.id === selectedSpaceId) || null
   const selectedItems = selectedSpace ? data.items.filter((item) => item.storage_space_id === selectedSpace.id) : []
+  const selectSpace = (spaceId: string) => setSelectedSpaceId((current) => current === spaceId ? null : spaceId)
   const spaces = <>
-    <div className="space-summary">{data.spaces.map((space) => <button className={selectedSpaceId === space.id ? 'selected' : ''} key={space.id} onClick={() => setSelectedSpaceId((current) => current === space.id ? null : space.id)}><span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>{space.item_count || 0}개</small></button>)}</div>
+    <div className="home-space-view-toggle" role="group" aria-label="보관공간 보기 방식"><button className={spaceView === 'list' ? 'active' : ''} onClick={() => setSpaceView('list')}><LayoutGrid /> 목록</button><button className={spaceView === 'map' ? 'active' : ''} onClick={() => setSpaceView('map')}><Map /> 주방맵</button></div>
+    {spaceView === 'list' ? <div className="space-summary">{data.spaces.map((space) => <button className={selectedSpaceId === space.id ? 'selected' : ''} key={space.id} onClick={() => selectSpace(space.id)}><span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>{space.item_count || 0}개</small></button>)}</div> : <section className="home-kitchen-map">{data.spaces.map((space) => <button key={space.id} className={`map-block type-${space.space_type} ${selectedSpaceId === space.id ? 'selected' : ''}`} style={{ gridColumn: `${space.map_x + 1} / span ${Math.max(1, space.map_width)}`, gridRow: `${space.map_y + 1} / span ${Math.max(1, space.map_height)}` }} onClick={() => selectSpace(space.id)}>{space.expiring_count ? <i>{space.expiring_count}</i> : null}<span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>{space.alias || `${space.item_count || 0}개 보관 중`}</small></button>)}</section>}
     {selectedSpace && <section className="home-space-detail"><div className="home-space-detail-head"><div><span>{spaceIcons[selectedSpace.space_type] || <Box />}</span><div><h3>{selectedSpace.name}</h3><p>{selectedSpace.alias || selectedSpace.memo || `${selectedItems.length}개의 식재료를 보관 중이에요.`}</p></div></div><button onClick={() => onAdd(selectedSpace.id)}><Plus /> 이 공간에 추가</button></div>{selectedItems.length ? <div className="home-space-items">{selectedItems.map((item) => <ItemRow key={item.id} item={item} onClick={() => onSelectItem(item)} />)}</div> : <div className="home-space-empty"><PackageCheck /><p>아직 보관한 식재료가 없어요.</p><button onClick={() => onAdd(selectedSpace.id)}>첫 식재료 추가하기</button></div>}</section>}
   </>
   if (data.items.length === 0) return <>
@@ -207,7 +211,7 @@ function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem }: { 
   </>
 }
 
-function KitchenMap({ data, demoMode, onSelectItem, onChanged }: { data: AppData; demoMode: boolean; onSelectItem: (item: InventoryItem) => void; onChanged: () => Promise<void> }) {
+function KitchenMap({ data, demoMode, onSelectItem, onAdd, onChanged }: { data: AppData; demoMode: boolean; onSelectItem: (item: InventoryItem) => void; onAdd: (spaceId: string) => void; onChanged: () => Promise<void> }) {
   const [selected, setSelected] = useState<StorageSpace | null>(null)
   const [spaces, setSpaces] = useState(data.spaces)
   const [editing, setEditing] = useState(false)
@@ -293,7 +297,7 @@ function KitchenMap({ data, demoMode, onSelectItem, onChanged }: { data: AppData
       <button className="list-add-space" onClick={() => setFormSpace('new')}><Plus /> 보관공간 추가</button>
     </section>}
     {view === 'map' && <p className="map-tip"><Sparkles /> {editing ? '블록을 터치한 채 원하는 칸으로 끌어보세요. 블록을 누르면 이름과 정보를 수정할 수 있어요.' : '배치 편집에서 공간의 위치와 크기를 실제 주방처럼 정리할 수 있어요.'}</p>}
-    {selected && <div className="space-drawer"><div><span>{spaceIcons[selected.space_type] || <Box />}</span><div><h2>{selected.name}</h2><p>{selected.alias || selected.memo || '별칭이나 메모가 없습니다.'}</p></div><button onClick={() => setSelected(null)}><X /></button></div>{data.items.filter((item) => item.storage_space_id === selected.id).length ? data.items.filter((item) => item.storage_space_id === selected.id).map((item) => <ItemRow key={item.id} item={item} onClick={() => onSelectItem(item)} />) : <p className="empty-space-message">이 공간에 등록된 식재료가 없어요.</p>}</div>}
+    {selected && <div className="space-drawer"><div><span>{spaceIcons[selected.space_type] || <Box />}</span><div><h2>{selected.name}</h2><p>{selected.alias || selected.memo || '별칭이나 메모가 없습니다.'}</p></div><button onClick={() => setSelected(null)}><X /></button></div><button className="space-drawer-add" onClick={() => onAdd(selected.id)}><Plus /> {selected.name}에 식재료 추가</button>{data.items.filter((item) => item.storage_space_id === selected.id).length ? data.items.filter((item) => item.storage_space_id === selected.id).map((item) => <ItemRow key={item.id} item={item} onClick={() => onSelectItem(item)} />) : <p className="empty-space-message">이 공간에 등록된 식재료가 없어요.</p>}</div>}
     {formSpace && <SpaceForm space={formSpace === 'new' ? null : formSpace} kitchenId={data.kitchen.id} demoMode={demoMode} onClose={() => setFormSpace(null)} onDelete={removeSpace} onSave={async (values) => {
       if (formSpace === 'new') {
         const emptyPosition = findEmptyPosition()
@@ -389,6 +393,36 @@ function MoveItemSheet({ item, spaces, onClose, onMove }: { item: InventoryItem;
   return <div className="sheet-backdrop"><section className="simple-sheet"><div className="sheet-head"><div><p>{item.product_name}</p><h2>보관 위치 이동</h2></div><button onClick={onClose}><X /></button></div><label><span>이동할 공간</span><select value={targetId} onChange={(event) => setTargetId(event.target.value)}>{spaces.map((space) => <option value={space.id} key={space.id}>{space.name}</option>)}</select></label><button className="primary-button" disabled={busy || targetId === item.storage_space_id} onClick={async () => { setBusy(true); try { await onMove(targetId) } finally { setBusy(false) } }}>{busy ? <LoaderCircle className="spin" /> : <Check />} 이동하기</button></section></div>
 }
 
+function ConsumptionScreen({ data, demoMode, onChanged }: { data: AppData; demoMode: boolean; onChanged: () => Promise<void> }) {
+  const [query, setQuery] = useState('')
+  const [selected, setSelected] = useState<Record<string, number>>({})
+  const [busy, setBusy] = useState(false)
+  const visible = data.items.filter((item) => `${item.product_name} ${item.alias || ''} ${item.storage_spaces?.name || ''}`.toLowerCase().includes(query.toLowerCase()))
+  const selectedEntries = data.items.filter((item) => selected[item.id] > 0).map((item) => ({ item, amount: selected[item.id] }))
+
+  const changeAmount = (item: InventoryItem, direction: 1 | -1) => {
+    const step = item.unit === 'g' ? 100 : item.unit === 'kg' ? 0.1 : 1
+    setSelected((current) => {
+      const next = Math.max(0, Math.min(Number(item.quantity), Number(((current[item.id] || 0) + step * direction).toFixed(2))))
+      if (next === 0) { const copy = { ...current }; delete copy[item.id]; return copy }
+      return { ...current, [item.id]: next }
+    })
+  }
+
+  const submit = async () => {
+    if (!selectedEntries.length) return
+    if (demoMode) return alert('미리보기에서는 실제 소비가 저장되지 않아요.')
+    const summary = selectedEntries.map(({ item, amount }) => `${item.product_name} ${amount}${item.unit}`).join(', ')
+    if (!window.confirm(`${summary}\n먹은 것으로 기록할까요?`)) return
+    setBusy(true)
+    try { await consumeInventoryItems(selectedEntries); setSelected({}); await onChanged() }
+    catch (error) { alert(error instanceof Error ? error.message : '소비 기록을 저장하지 못했습니다.') }
+    finally { setBusy(false) }
+  }
+
+  return <><div className="page-heading"><div><p>먹은 만큼 한 번에 빼기</p><h1>식사 기록</h1></div><span className="meal-selected-count">{selectedEntries.length}종 선택</span></div><section className="meal-guide"><UtensilsCrossed /><div><b>방금 무엇을 먹었나요?</b><p>상품을 누르면 기본 1개가 선택돼요. 여러 상품도 한 번에 기록할 수 있어요.</p></div></section><label className="global-search meal-search"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="먹은 식재료 검색" />{query && <button onClick={() => setQuery('')}><X /></button>}</label><div className="meal-item-list">{visible.length ? visible.map((item) => { const amount = selected[item.id] || 0; return <article className={amount ? 'selected' : ''} key={item.id} onClick={() => !amount && changeAmount(item, 1)}><ItemThumb item={item} /><div><b>{item.product_name}</b><span>{item.storage_spaces?.name} · 보유 {item.quantity}{item.unit}</span></div>{amount ? <div className="meal-stepper"><button aria-label={`${item.product_name} 소비량 줄이기`} onClick={(event) => { event.stopPropagation(); changeAmount(item, -1) }}>−</button><strong>{amount}{item.unit}</strong><button aria-label={`${item.product_name} 소비량 늘리기`} disabled={amount >= Number(item.quantity)} onClick={(event) => { event.stopPropagation(); changeAmount(item, 1) }}>+</button></div> : <button className="meal-add" onClick={(event) => { event.stopPropagation(); changeAmount(item, 1) }}><Plus /> 먹었어요</button>}</article> }) : <div className="no-results"><Search /><p>해당하는 식재료가 없어요.</p></div>}</div>{selectedEntries.length > 0 && <div className="meal-submit-bar"><div><b>{selectedEntries.length}가지</b><span>{selectedEntries.map(({ item, amount }) => `${item.product_name} ${amount}${item.unit}`).join(' · ')}</span></div><button disabled={busy} onClick={() => void submit()}>{busy ? <LoaderCircle className="spin" /> : <UtensilsCrossed />} 소비 등록</button></div>}</>
+}
+
 function RecipeScreen({ data, profileId, demoMode, onChanged }: { data: AppData; profileId: string; demoMode: boolean; onChanged: () => Promise<void> }) {
   const [selected, setSelected] = useState<Recipe | null>(null)
   const [savedOnly, setSavedOnly] = useState(false)
@@ -418,19 +452,27 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
   const [quantity, setQuantity] = useState('1')
   const [unit, setUnit] = useState('개')
   const [spaceId, setSpaceId] = useState(initialSpaceId || data.spaces[0]?.id || '')
-  const [expiration, setExpiration] = useState('')
-  const [useBy, setUseBy] = useState('')
+  const [deadlineType, setDeadlineType] = useState<'use_by' | 'expiration'>('use_by')
+  const [deadlineDate, setDeadlineDate] = useState('')
   const [memo, setMemo] = useState('')
   const [category, setCategory] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState('')
   const [barcodeImageUrl, setBarcodeImageUrl] = useState('')
+  const [catalogProductId, setCatalogProductId] = useState<string | null>(null)
+  const quantityStep = unit === 'g' ? 100 : unit === 'kg' ? 0.1 : 1
+  const changeQuantity = (direction: 1 | -1) => setQuantity((current) => String(Math.max(quantityStep, Number((Number(current) + quantityStep * direction).toFixed(2)))))
+  const changeUnit = (nextUnit: string) => {
+    if (nextUnit === 'g' && Number(quantity) === 1) setQuantity('100')
+    else if (unit === 'g' && nextUnit !== 'g' && Number(quantity) === 100) setQuantity('1')
+    setUnit(nextUnit)
+  }
 
   const findBarcode = async (nextBarcode = barcode) => {
     if (!nextBarcode) return
     setBarcode(nextBarcode)
     setBusy(true)
-    try { const found = await lookupBarcode(nextBarcode); if (found) { setName(found.name); setBarcodeImageUrl(found.imageUrl); setPreview(found.imageUrl) } else alert('바코드는 인식했지만 상품 정보를 찾지 못했어요. 상품명을 직접 입력해 주세요.') } finally { setBusy(false) }
+    try { const found = await lookupBarcode(nextBarcode, profileId, data.kitchen.id); if (found) { setCatalogProductId(found.catalogId); setName(found.name); setCategory(found.category); changeUnit(found.unit); setBarcodeImageUrl(found.imageUrl); setPreview(found.imageUrl) } else { setCatalogProductId(null); alert('처음 등록하는 상품이에요. 상품명을 한 번 입력하면 다음부터 우리 주방에서 자동으로 찾아드려요.') } } finally { setBusy(false) }
   }
   const save = async () => {
     if (!name.trim() || !spaceId) return alert('상품명과 보관 위치는 필수입니다.')
@@ -438,7 +480,7 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
     setBusy(true)
     try {
       const imagePath = file ? await uploadInventoryImage(file, data.kitchen.id, profileId) : barcodeImageUrl || null
-      await createInventoryItem({ kitchen_id: data.kitchen.id, storage_space_id: spaceId, created_by: profileId, product_name: name.trim(), alias: alias.trim() || null, barcode: barcode || null, image_path: imagePath, category: category || null, quantity: Number(quantity) || 1, unit, purchased_at: new Date().toISOString().slice(0, 10), opened_at: null, expiration_date: expiration || null, use_by_date: useBy || null, recommended_use_date: null, memo: memo.trim() || null, registration_method: mode })
+      await createInventoryItem({ kitchen_id: data.kitchen.id, storage_space_id: spaceId, catalog_product_id: catalogProductId, created_by: profileId, product_name: name.trim(), alias: alias.trim() || null, barcode: barcode || null, image_path: imagePath, category: category || null, quantity: Number(quantity) || quantityStep, unit, purchased_at: new Date().toISOString().slice(0, 10), opened_at: null, expiration_date: deadlineType === 'expiration' ? deadlineDate || null : null, use_by_date: deadlineType === 'use_by' ? deadlineDate || null : null, recommended_use_date: null, memo: memo.trim() || null, registration_method: mode })
       await onSaved()
     } catch (error) { alert(error instanceof Error ? error.message : '저장하지 못했습니다.') } finally { setBusy(false) }
   }
@@ -446,7 +488,7 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
     <div className="mode-tabs"><button className={mode === 'barcode' ? 'active' : ''} onClick={() => setMode('barcode')}><ScanLine /> 바코드</button><button className={mode === 'manual' ? 'active' : ''} onClick={() => setMode('manual')}><PenLine /> 직접 입력</button></div>
     {mode === 'barcode' && <><BarcodeCameraScanner onDetected={findBarcode} /><details className="barcode-manual"><summary>번호를 직접 입력할게요</summary><div><input inputMode="numeric" value={barcode} onChange={(e) => setBarcode(e.target.value.replace(/\D/g, ''))} placeholder="880..." /><button onClick={() => void findBarcode()}>조회</button></div></details></>}
     <label className="photo-field">{preview ? <img src={preview} /> : <Camera />}<span>{file ? file.name : barcodeImageUrl ? '바코드 상품 사진을 함께 저장해요' : '상품 사진 촬영 또는 선택'}</span><input type="file" accept="image/*" capture="environment" onChange={(e) => { const selected = e.target.files?.[0] || null; setFile(selected); if (selected) { setBarcodeImageUrl(''); setPreview(URL.createObjectURL(selected)) } }} /></label>
-    <div className="form-grid"><label className="full"><span>상품명 *</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 사과" /></label><label><span>별칭</span><input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder="아침용" /></label><label><span>카테고리</span><input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="과일" /></label><label><span>수량</span><input type="number" min="0" step="0.1" value={quantity} onChange={(e) => setQuantity(e.target.value)} /></label><label><span>단위</span><select value={unit} onChange={(e) => setUnit(e.target.value)}><option>개</option><option>팩</option><option>병</option><option>봉</option><option>g</option><option>kg</option><option>모</option></select></label><label className="full"><span>보관 위치 *</span><select value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>{data.spaces.map((space) => <option key={space.id} value={space.id}>{space.name}{space.alias ? ` · ${space.alias}` : ''}</option>)}</select></label><label><span>유통기한</span><input type="date" value={expiration} onChange={(e) => setExpiration(e.target.value)} /></label><label><span>소비기한</span><input type="date" value={useBy} onChange={(e) => setUseBy(e.target.value)} /></label><label className="full"><span>메모</span><textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="보관법이나 구입처를 적어두세요." /></label></div>
+    <div className="form-grid"><label className="full"><span>상품명 *</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 사과" /></label><label><span>별칭</span><input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder="아침용" /></label><label><span>카테고리</span><input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="과일" /></label><div className="quantity-field"><span>수량</span><div className="register-stepper"><button type="button" aria-label="수량 줄이기" onClick={() => changeQuantity(-1)}>−</button><strong>{quantity}</strong><button type="button" aria-label="수량 늘이기" onClick={() => changeQuantity(1)}>+</button></div></div><label><span>단위</span><select value={unit} onChange={(e) => changeUnit(e.target.value)}><option>개</option><option>팩</option><option>병</option><option>봉</option><option>g</option><option>kg</option><option>모</option></select></label><label className="full"><span>보관 위치 *</span><select value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>{data.spaces.map((space) => <option key={space.id} value={space.id}>{space.name}{space.alias ? ` · ${space.alias}` : ''}</option>)}</select></label><label><span>기한 종류</span><select value={deadlineType} onChange={(e) => setDeadlineType(e.target.value as 'use_by' | 'expiration')}><option value="use_by">소비기한</option><option value="expiration">유통기한</option></select></label><label><span>{deadlineType === 'use_by' ? '소비기한 날짜' : '유통기한 날짜'}</span><input type="date" value={deadlineDate} onChange={(e) => setDeadlineDate(e.target.value)} /></label><label className="full"><span>메모</span><textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="보관법이나 구입처를 적어두세요." /></label></div>
     <button className="primary-button" disabled={busy} onClick={save}>{busy ? <LoaderCircle className="spin" /> : <PackageCheck />} 저장하기</button>
   </section></div>
 }
@@ -509,7 +551,7 @@ function RecipeDetail({ recipe, items, saved, onToggleSave, onClose }: { recipe:
   return <div className="sheet-backdrop"><section className="recipe-detail"><div className="sheet-head"><div><p>{recipe.cook_minutes}분 · {recipe.difficulty}</p><h2>{recipe.title}</h2></div><button onClick={onClose}><X /></button></div><button className={`recipe-save-button ${saved ? 'saved' : ''}`} onClick={onToggleSave}><BookOpen /> {saved ? '저장됨' : '레시피 저장'}</button><p>{recipe.summary}</p><h3>재료</h3>{recipe.ingredients?.map((ingredient) => { const have = items.some((item) => normalize(item.product_name).includes(normalize(ingredient.ingredient_name))); return <div className={`recipe-ingredient ${have ? 'have' : ''}`} key={ingredient.ingredient_name}><span>{have ? <Check /> : <Plus />}</span><b>{ingredient.ingredient_name}</b><small>{ingredient.amount} · {have ? '집에 있어요' : '추가로 필요해요'}</small></div> })}<h3>만드는 법</h3><ol>{recipe.instructions.map((step, index) => <li key={step}><span>{index + 1}</span>{step}</li>)}</ol></section></div>
 }
 
-function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, onSignOut, onGoMap, onOpenNotifications, onChanged }: { profile: Profile | null; kitchenName: string; kitchenId: string; demoMode: boolean; onExitDemo: () => void; onSignOut: () => Promise<void>; onGoMap: () => void; onOpenNotifications: () => void; onChanged: () => Promise<void> }) {
+function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, onSignOut, onGoMap, onGoRecipes, onOpenNotifications, onChanged }: { profile: Profile | null; kitchenName: string; kitchenId: string; demoMode: boolean; onExitDemo: () => void; onSignOut: () => Promise<void>; onGoMap: () => void; onGoRecipes: () => void; onOpenNotifications: () => void; onChanged: () => Promise<void> }) {
   const nickname = profile?.nickname || '미리보기 사용자'
   const [editing, setEditing] = useState<'profile' | 'kitchen' | null>(null)
   const [value, setValue] = useState('')
@@ -531,7 +573,7 @@ function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, 
     <div className="page-heading"><div><p>반가워요</p><h1>{nickname}</h1></div></div>
     <div className="profile-card"><CircleUserRound /><div><b>{nickname}</b><span>{demoMode ? '미리보기 모드' : profile?.username ? `@${profile.username} · 아이디 계정` : '로그인 계정'}</span></div>{!demoMode && <button onClick={() => openEdit('profile')}><PenLine /></button>}</div>
     <section className="profile-kitchen"><div><span>내 주방</span><b>{kitchenName}</b></div>{!demoMode && <button onClick={() => openEdit('kitchen')}><PenLine /> 이름 수정</button>}</section>
-    <div className="settings-list"><button onClick={onOpenNotifications}><Bell /><span><b>알림 내역</b><small>소비기한 알림을 확인합니다</small></span><ChevronRight /></button><button onClick={onGoMap}><Map /><span><b>내 주방 관리</b><small>보관공간 이름과 배치를 관리합니다</small></span><ChevronRight /></button></div>
+    <div className="settings-list"><button onClick={onOpenNotifications}><Bell /><span><b>알림 내역</b><small>소비기한 알림을 확인합니다</small></span><ChevronRight /></button><button onClick={onGoMap}><Map /><span><b>내 주방 관리</b><small>보관공간 이름과 배치를 관리합니다</small></span><ChevronRight /></button><button onClick={onGoRecipes}><BookOpen /><span><b>내 레시피북</b><small>저장한 레시피를 보고 새로운 요리를 탐색합니다</small></span><ChevronRight /></button></div>
     <button className="signout" onClick={demoMode ? onExitDemo : onSignOut}><LogOut /> {demoMode ? '로그인 화면으로' : '로그아웃'}</button>
     {editing && <div className="sheet-backdrop"><section className="simple-sheet"><div className="sheet-head"><div><p>{editing === 'profile' ? '마이페이지에 표시됩니다' : '홈 화면에 표시됩니다'}</p><h2>{editing === 'profile' ? '이름 수정' : '주방 이름 수정'}</h2></div><button onClick={() => setEditing(null)}><X /></button></div><label><span>{editing === 'profile' ? '표시 이름' : '주방 이름'}</span><input autoFocus maxLength={30} value={value} onChange={(event) => setValue(event.target.value)} /></label><button className="primary-button" disabled={busy || !value.trim()} onClick={() => void save()}>{busy ? <LoaderCircle className="spin" /> : <Check />} 저장하기</button></section></div>}
   </>
@@ -546,7 +588,7 @@ function NotificationsSheet({ notifications, profileId, demoMode, onClose, onRea
 }
 
 function BottomNav({ tab, setTab, onAdd }: { tab: Tab; setTab: (tab: Tab) => void; onAdd: () => void }) {
-  const links: { id: Tab; label: string; icon: React.ReactNode }[] = [{ id: 'home', label: '홈', icon: <Home /> }, { id: 'map', label: '주방맵', icon: <Map /> }, { id: 'search', label: '검색', icon: <Search /> }, { id: 'recipes', label: '레시피', icon: <BookOpen /> }]
+  const links: { id: Tab; label: string; icon: React.ReactNode }[] = [{ id: 'home', label: '홈', icon: <Home /> }, { id: 'map', label: '주방맵', icon: <Map /> }, { id: 'search', label: '검색', icon: <Search /> }, { id: 'consume', label: '식사', icon: <UtensilsCrossed /> }]
   return <nav className="bottom-nav">{links.slice(0, 2).map((link) => <button className={tab === link.id ? 'active' : ''} onClick={() => setTab(link.id)} key={link.id}>{link.icon}<span>{link.label}</span></button>)}<button className="add-button" onClick={onAdd} aria-label="식재료 추가"><Plus /></button>{links.slice(2).map((link) => <button className={tab === link.id ? 'active' : ''} onClick={() => setTab(link.id)} key={link.id}>{link.icon}<span>{link.label}</span></button>)}</nav>
 }
 
