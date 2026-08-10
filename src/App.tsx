@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { IScannerControls } from '@zxing/browser'
 import {
-  Apple, Bell, BookOpen, Box, Camera, Check, ChevronRight, CircleUserRound,
-  Clock3, DoorOpen, Home, LayoutGrid, List, LoaderCircle, LogOut, Map, PackageCheck, PenLine,
-  PanelsTopLeft, Plus, Refrigerator, ScanLine, Search, Settings2, Snowflake, Sparkles, UtensilsCrossed, X,
+  Apple, Beef, Bell, BookOpen, Box, Camera, Carrot, Check, ChevronRight, CircleUserRound, Cookie, CookingPot, CupSoda,
+  Clock3, DoorOpen, Egg, Fish, Home, LayoutGrid, List, LoaderCircle, LogOut, Map, Milk, Package, PackageCheck, PenLine,
+  PanelsTopLeft, Plus, Refrigerator, ScanLine, Search, Settings2, Snowflake, Sparkles, UtensilsCrossed, Wheat, X,
 } from 'lucide-react'
 import { useAuth } from './contexts/AuthContext'
 import { demoData } from './demoData'
@@ -23,6 +23,8 @@ const spaceIcons: Record<string, React.ReactNode> = {
   fridge: <Refrigerator />, freezer: <Snowflake />, pantry: <LayoutGrid />,
   cabinet: <PanelsTopLeft />, under_sink: <DoorOpen />,
 }
+
+const categoryOptions = ['채소', '과일', '육류', '수산물', '달걀', '유제품', '곡류/면', '음료', '조미료/소스', '간식', '냉동식품', '기타']
 
 function App() {
   const { session, profile, loading, signInWithCredentials, signUpWithCredentials, signOut, refreshProfile } = useAuth()
@@ -184,6 +186,7 @@ function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem }: { 
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null)
   const [spaceView, setSpaceView] = useState<'list' | 'map'>('list')
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null)
+  const spaceDetailRef = useRef<HTMLElement | null>(null)
   const urgent = [...data.items].sort((a, b) => getDaysLeft(a) - getDaysLeft(b)).filter((item) => getDaysLeft(item) <= 7)
   const recommendedRecipes = getRecommendedRecipes(data.recipes, data.items)
   const dailyRecipe = recommendedRecipes.length ? recommendedRecipes[Math.floor(Date.now() / 86400000) % Math.min(3, recommendedRecipes.length)] : undefined
@@ -191,10 +194,18 @@ function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem }: { 
   const selectedSpace = data.spaces.find((space) => space.id === selectedSpaceId) || null
   const selectedItems = selectedSpace ? data.items.filter((item) => item.storage_space_id === selectedSpace.id) : []
   const selectSpace = (spaceId: string) => setSelectedSpaceId((current) => current === spaceId ? null : spaceId)
+  useEffect(() => {
+    if (!selectedSpaceId) return
+    const frame = window.requestAnimationFrame(() => {
+      spaceDetailRef.current?.focus({ preventScroll: true })
+      spaceDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [selectedSpaceId])
   const spaces = <>
     <div className="home-space-view-toggle" role="group" aria-label="보관공간 보기 방식"><button className={spaceView === 'list' ? 'active' : ''} onClick={() => setSpaceView('list')}><LayoutGrid /> 목록</button><button className={spaceView === 'map' ? 'active' : ''} onClick={() => setSpaceView('map')}><Map /> 주방맵</button></div>
     {spaceView === 'list' ? <div className="space-summary">{data.spaces.map((space) => <button className={selectedSpaceId === space.id ? 'selected' : ''} key={space.id} onClick={() => selectSpace(space.id)}><span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>{space.item_count || 0}개</small></button>)}</div> : <section className="home-kitchen-map">{data.spaces.map((space) => <button key={space.id} className={`map-block type-${space.space_type} ${selectedSpaceId === space.id ? 'selected' : ''}`} style={{ gridColumn: `${space.map_x + 1} / span ${Math.max(1, space.map_width)}`, gridRow: `${space.map_y + 1} / span ${Math.max(1, space.map_height)}` }} onClick={() => selectSpace(space.id)}>{space.expiring_count ? <i>{space.expiring_count}</i> : null}<span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>{space.alias || `${space.item_count || 0}개 보관 중`}</small></button>)}</section>}
-    {selectedSpace && <section className="home-space-detail"><div className="home-space-detail-head"><div><span>{spaceIcons[selectedSpace.space_type] || <Box />}</span><div><h3>{selectedSpace.name}</h3><p>{selectedSpace.alias || selectedSpace.memo || `${selectedItems.length}개의 식재료를 보관 중이에요.`}</p></div></div><button onClick={() => onAdd(selectedSpace.id)}><Plus /> 이 공간에 추가</button></div>{selectedItems.length ? <div className="home-space-items">{selectedItems.map((item) => <ItemRow key={item.id} item={item} onClick={() => onSelectItem(item)} />)}</div> : <div className="home-space-empty"><PackageCheck /><p>아직 보관한 식재료가 없어요.</p><button onClick={() => onAdd(selectedSpace.id)}>첫 식재료 추가하기</button></div>}</section>}
+    {selectedSpace && <section ref={spaceDetailRef} tabIndex={-1} className="home-space-detail space-focus-target"><div className="home-space-detail-head"><div><span>{spaceIcons[selectedSpace.space_type] || <Box />}</span><div><h3>{selectedSpace.name}</h3><p>{selectedSpace.alias || selectedSpace.memo || `${selectedItems.length}개의 식재료를 보관 중이에요.`}</p></div></div><button onClick={() => onAdd(selectedSpace.id)}><Plus /> 이 공간에 추가</button></div>{selectedItems.length ? <div className="home-space-items">{selectedItems.map((item) => <ItemRow key={item.id} item={item} onClick={() => onSelectItem(item)} />)}</div> : <div className="home-space-empty"><PackageCheck /><p>아직 보관한 식재료가 없어요.</p><button onClick={() => onAdd(selectedSpace.id)}>첫 식재료 추가하기</button></div>}</section>}
   </>
   if (data.items.length === 0) return <>
     <section className="welcome"><div><p>주방 공간이 준비됐어요 👋</p><h1>{data.kitchen.name}</h1></div><span className="item-total">식재료 <b>0</b>개</span></section>
@@ -225,8 +236,17 @@ function KitchenMap({ data, demoMode, onSelectItem, onAdd, onChanged }: { data: 
   const [view, setView] = useState<'map' | 'list'>('map')
   const dragStartRef = useRef<{ x: number; y: number } | null>(null)
   const didDragRef = useRef(false)
+  const spaceDrawerRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => setSpaces(data.spaces), [data.spaces])
+  useEffect(() => {
+    if (!selected || editing) return
+    const frame = window.requestAnimationFrame(() => {
+      spaceDrawerRef.current?.focus({ preventScroll: true })
+      spaceDrawerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [selected, editing])
 
   const updateDraft = (id: string, changes: Partial<StorageSpace>) => {
     setSpaces((current) => current.map((space) => space.id === id ? { ...space, ...changes } : space))
@@ -301,7 +321,7 @@ function KitchenMap({ data, demoMode, onSelectItem, onAdd, onChanged }: { data: 
       <button className="list-add-space" onClick={() => setFormSpace('new')}><Plus /> 보관공간 추가</button>
     </section>}
     {view === 'map' && <p className="map-tip"><Sparkles /> {editing ? '블록을 터치한 채 원하는 칸으로 끌어보세요. 블록을 누르면 이름과 정보를 수정할 수 있어요.' : '배치 편집에서 공간의 위치와 크기를 실제 주방처럼 정리할 수 있어요.'}</p>}
-    {selected && <div className="space-drawer"><div><span>{spaceIcons[selected.space_type] || <Box />}</span><div><h2>{selected.name}</h2><p>{selected.alias || selected.memo || '별칭이나 메모가 없습니다.'}</p></div><button onClick={() => setSelected(null)}><X /></button></div><button className="space-drawer-add" onClick={() => onAdd(selected.id)}><Plus /> {selected.name}에 식재료 추가</button>{data.items.filter((item) => item.storage_space_id === selected.id).length ? data.items.filter((item) => item.storage_space_id === selected.id).map((item) => <ItemRow key={item.id} item={item} onClick={() => onSelectItem(item)} />) : <p className="empty-space-message">이 공간에 등록된 식재료가 없어요.</p>}</div>}
+    {selected && <div ref={spaceDrawerRef} tabIndex={-1} className="space-drawer space-focus-target"><div><span>{spaceIcons[selected.space_type] || <Box />}</span><div><h2>{selected.name}</h2><p>{selected.alias || selected.memo || '별칭이나 메모가 없습니다.'}</p></div><button onClick={() => setSelected(null)}><X /></button></div><button className="space-drawer-add" onClick={() => onAdd(selected.id)}><Plus /> {selected.name}에 식재료 추가</button>{data.items.filter((item) => item.storage_space_id === selected.id).length ? data.items.filter((item) => item.storage_space_id === selected.id).map((item) => <ItemRow key={item.id} item={item} onClick={() => onSelectItem(item)} />) : <p className="empty-space-message">이 공간에 등록된 식재료가 없어요.</p>}</div>}
     {formSpace && <SpaceForm space={formSpace === 'new' ? null : formSpace} kitchenId={data.kitchen.id} demoMode={demoMode} onClose={() => setFormSpace(null)} onDelete={removeSpace} onSave={async (values) => {
       if (formSpace === 'new') {
         const emptyPosition = findEmptyPosition()
@@ -387,7 +407,7 @@ function ItemDetailSheet({ item, spaces, demoMode, onClose, onSaved }: { item: I
   }
 
   return <div className="sheet-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="item-detail-sheet"><div className="sheet-handle" /><div className="sheet-head"><div><p>{space?.name || '보관 위치 미지정'} · {dateLabel(item)}</p><h2>{editing ? '상품 수정' : item.product_name}</h2></div><button type="button" onClick={onClose}><X /></button></div>
-    {!editing ? <><div className="item-detail-hero">{preview ? <img src={preview} alt="" /> : <div><Apple /></div>}<div><span>{item.category || '카테고리 없음'}</span><b>{item.quantity}{item.unit}</b><small>{item.alias || '별칭 없음'}</small></div></div><dl className="item-detail-info"><div><dt>보관 위치</dt><dd>{space?.name || '-'}</dd></div><div><dt>유통기한</dt><dd>{item.expiration_date || '-'}</dd></div><div><dt>소비기한</dt><dd>{item.use_by_date || '-'}</dd></div><div><dt>바코드</dt><dd>{item.barcode || '-'}</dd></div><div className="full"><dt>메모</dt><dd>{item.memo || '등록된 메모가 없습니다.'}</dd></div></dl><button className="primary-button" onClick={() => setEditing(true)}><PenLine /> 상품 정보 수정</button></> : <form onSubmit={save}><label className="photo-field">{preview ? <img src={preview} alt="" /> : <Camera />}<span>{file ? file.name : '상품 사진 변경'}</span><input type="file" accept="image/*" capture="environment" onChange={(event) => { const selected = event.target.files?.[0] || null; setFile(selected); if (selected) setPreview(URL.createObjectURL(selected)) }} /></label><div className="form-grid"><label className="full"><span>상품명 *</span><input value={name} onChange={(event) => setName(event.target.value)} /></label><label><span>별칭</span><input value={alias} onChange={(event) => setAlias(event.target.value)} /></label><label><span>카테고리</span><input value={category} onChange={(event) => setCategory(event.target.value)} /></label><label><span>수량</span><input type="number" min="0" step="0.1" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label><label><span>단위</span><select value={unit} onChange={(event) => setUnit(event.target.value)}><option>개</option><option>팩</option><option>병</option><option>봉</option><option>g</option><option>kg</option><option>모</option></select></label><label className="full"><span>보관 위치 *</span><select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}>{spaces.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label><label><span>기한 종류</span><select value={deadlineType} onChange={(event) => setDeadlineType(event.target.value as 'use_by' | 'expiration')}><option value="use_by">소비기한</option><option value="expiration">유통기한</option></select></label><label><span>{deadlineType === 'use_by' ? '소비기한 날짜' : '유통기한 날짜'}</span><input type="date" value={deadlineDate} onChange={(event) => setDeadlineDate(event.target.value)} /></label><label className="full"><span>메모</span><textarea value={memo} onChange={(event) => setMemo(event.target.value)} /></label></div><div className="detail-edit-actions"><button type="button" onClick={() => setEditing(false)}>취소</button><button className="primary-button" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : <Check />} 수정 저장</button></div></form>}
+    {!editing ? <><div className="item-detail-hero">{preview ? <img src={preview} alt="" /> : <div className={`category-${getItemCategoryVisual(item).key}`}>{getItemCategoryVisual(item).icon}</div>}<div><span>{item.category || '카테고리 없음'}</span><b>{item.quantity}{item.unit}</b><small>{item.alias || '별칭 없음'}</small></div></div><dl className="item-detail-info"><div><dt>보관 위치</dt><dd>{space?.name || '-'}</dd></div><div><dt>유통기한</dt><dd>{item.expiration_date || '-'}</dd></div><div><dt>소비기한</dt><dd>{item.use_by_date || '-'}</dd></div><div><dt>바코드</dt><dd>{item.barcode || '-'}</dd></div><div className="full"><dt>메모</dt><dd>{item.memo || '등록된 메모가 없습니다.'}</dd></div></dl><button className="primary-button" onClick={() => setEditing(true)}><PenLine /> 상품 정보 수정</button></> : <form onSubmit={save}><label className="photo-field">{preview ? <img src={preview} alt="" /> : <Camera />}<span>{file ? file.name : '상품 사진 변경'}</span><input type="file" accept="image/*" capture="environment" onChange={(event) => { const selected = event.target.files?.[0] || null; setFile(selected); if (selected) setPreview(URL.createObjectURL(selected)) }} /></label><div className="form-grid"><label className="full"><span>상품명 *</span><input value={name} onChange={(event) => setName(event.target.value)} /></label><label><span>별칭</span><input value={alias} onChange={(event) => setAlias(event.target.value)} /></label><CategoryField value={category} onChange={setCategory} /><label><span>수량</span><input type="number" min="0" step="0.1" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label><label><span>단위</span><select value={unit} onChange={(event) => setUnit(event.target.value)}><option>개</option><option>팩</option><option>병</option><option>봉</option><option>g</option><option>kg</option><option>모</option></select></label><label className="full"><span>보관 위치 *</span><select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}>{spaces.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label><label><span>기한 종류</span><select value={deadlineType} onChange={(event) => setDeadlineType(event.target.value as 'use_by' | 'expiration')}><option value="use_by">소비기한</option><option value="expiration">유통기한</option></select></label><label><span>{deadlineType === 'use_by' ? '소비기한 날짜' : '유통기한 날짜'}</span><input type="date" value={deadlineDate} onChange={(event) => setDeadlineDate(event.target.value)} /></label><label className="full"><span>메모</span><textarea value={memo} onChange={(event) => setMemo(event.target.value)} /></label></div><div className="detail-edit-actions"><button type="button" onClick={() => setEditing(false)}>취소</button><button className="primary-button" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : <Check />} 수정 저장</button></div></form>}
   </section></div>
 }
 
@@ -499,7 +519,7 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
     <div className="mode-tabs"><button className={mode === 'barcode' ? 'active' : ''} onClick={() => setMode('barcode')}><ScanLine /> 바코드</button><button className={mode === 'manual' ? 'active' : ''} onClick={() => setMode('manual')}><PenLine /> 직접 입력</button></div>
     {mode === 'barcode' && <><BarcodeCameraScanner onDetected={findBarcode} /><details className="barcode-manual"><summary>번호를 직접 입력할게요</summary><div><input inputMode="numeric" value={barcode} onChange={(e) => setBarcode(e.target.value.replace(/\D/g, ''))} placeholder="880..." /><button onClick={() => void findBarcode()}>조회</button></div></details></>}
     <label className="photo-field">{preview ? <img src={preview} /> : <Camera />}<span>{file ? file.name : barcodeImageUrl ? '바코드 상품 사진을 함께 저장해요' : '상품 사진 촬영 또는 선택'}</span><input type="file" accept="image/*" capture="environment" onChange={(e) => { const selected = e.target.files?.[0] || null; setFile(selected); if (selected) { setBarcodeImageUrl(''); setPreview(URL.createObjectURL(selected)) } }} /></label>
-    <div className="form-grid"><label className="full"><span>상품명 *</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 사과" /></label><label><span>별칭</span><input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder="아침용" /></label><label><span>카테고리</span><input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="과일" /></label><div className="quantity-field"><span>수량</span><div className="register-stepper"><button type="button" aria-label="수량 줄이기" onClick={() => changeQuantity(-1)}>−</button><strong>{quantity}</strong><button type="button" aria-label="수량 늘이기" onClick={() => changeQuantity(1)}>+</button></div></div><label><span>단위</span><select value={unit} onChange={(e) => changeUnit(e.target.value)}><option>개</option><option>팩</option><option>병</option><option>봉</option><option>g</option><option>kg</option><option>모</option></select></label><label className="full"><span>보관 위치 *</span><select value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>{data.spaces.map((space) => <option key={space.id} value={space.id}>{space.name}{space.alias ? ` · ${space.alias}` : ''}</option>)}</select></label><label><span>기한 종류</span><select value={deadlineType} onChange={(e) => setDeadlineType(e.target.value as 'use_by' | 'expiration')}><option value="use_by">소비기한</option><option value="expiration">유통기한</option></select></label><label><span>{deadlineType === 'use_by' ? '소비기한 날짜' : '유통기한 날짜'}</span><input type="date" value={deadlineDate} onChange={(e) => setDeadlineDate(e.target.value)} /></label><label className="full"><span>메모</span><textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="보관법이나 구입처를 적어두세요." /></label></div>
+    <div className="form-grid"><label className="full"><span>상품명 *</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 사과" /></label><label><span>별칭</span><input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder="아침용" /></label><CategoryField value={category} onChange={setCategory} /><div className="quantity-field"><span>수량</span><div className="register-stepper"><button type="button" aria-label="수량 줄이기" onClick={() => changeQuantity(-1)}>−</button><strong>{quantity}</strong><button type="button" aria-label="수량 늘이기" onClick={() => changeQuantity(1)}>+</button></div></div><label><span>단위</span><select value={unit} onChange={(e) => changeUnit(e.target.value)}><option>개</option><option>팩</option><option>병</option><option>봉</option><option>g</option><option>kg</option><option>모</option></select></label><label className="full"><span>보관 위치 *</span><select value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>{data.spaces.map((space) => <option key={space.id} value={space.id}>{space.name}{space.alias ? ` · ${space.alias}` : ''}</option>)}</select></label><label><span>기한 종류</span><select value={deadlineType} onChange={(e) => setDeadlineType(e.target.value as 'use_by' | 'expiration')}><option value="use_by">소비기한</option><option value="expiration">유통기한</option></select></label><label><span>{deadlineType === 'use_by' ? '소비기한 날짜' : '유통기한 날짜'}</span><input type="date" value={deadlineDate} onChange={(e) => setDeadlineDate(e.target.value)} /></label><label className="full"><span>메모</span><textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="보관법이나 구입처를 적어두세요." /></label></div>
     <button className="primary-button" disabled={busy} onClick={save}>{busy ? <LoaderCircle className="spin" /> : <PackageCheck />} 저장하기</button>
   </section></div>
 }
@@ -604,13 +624,37 @@ function BottomNav({ tab, setTab, onAdd }: { tab: Tab; setTab: (tab: Tab) => voi
 }
 
 function SectionTitle({ title, action }: { title: string; action: string }) { return <div className="section-title"><h2>{title}</h2><span>{action}</span></div> }
+function CategoryField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const isPreset = categoryOptions.includes(value)
+  const [customMode, setCustomMode] = useState(Boolean(value && !isPreset))
+  useEffect(() => {
+    if (value) setCustomMode(!categoryOptions.includes(value))
+  }, [value])
+  const selectValue = customMode ? '__custom' : isPreset ? value : ''
+  return <div className="category-field"><label><span>카테고리</span><select value={selectValue} onChange={(event) => { const next = event.target.value; setCustomMode(next === '__custom'); onChange(next === '__custom' ? '' : next) }}><option value="">선택하세요</option>{categoryOptions.map((category) => <option value={category} key={category}>{category}</option>)}<option value="__custom">직접 입력</option></select></label>{customMode && <input autoFocus aria-label="카테고리 직접 입력" value={value} onChange={(event) => onChange(event.target.value)} placeholder="예: 건강식품" />}</div>
+}
 function ItemMiniCard({ item, onClick }: { item: InventoryItem; onClick: () => void }) { const days = getDaysLeft(item); return <button className="item-mini" onClick={onClick}><ItemThumb item={item} /><b>{item.product_name}</b><span>{item.storage_spaces?.name}</span><em className={days <= 0 ? 'danger' : ''}>{days < 0 ? `${Math.abs(days)}일 지남` : days === 0 ? '오늘' : `${days}일`}</em></button> }
-function ItemThumb({ item }: { item: InventoryItem }) { const url = getInventoryImageUrl(item.image_path); return <div className="item-thumb">{url ? <img src={url} /> : <Apple />}</div> }
+function ItemThumb({ item }: { item: InventoryItem }) { const url = getInventoryImageUrl(item.image_path); const visual = getItemCategoryVisual(item); return <div className={`item-thumb category-${visual.key}`}>{url ? <img src={url} /> : visual.icon}</div> }
 function ItemRow({ item, onClick }: { item: InventoryItem; onClick: () => void }) { return <button className="drawer-item" onClick={onClick}><ItemThumb item={item} /><div><b>{item.product_name}</b><span>{item.quantity}{item.unit} · {dateLabel(item)}</span></div><ChevronRight /></button> }
 function EmptyMini() { return <div className="empty-mini"><Check /> 일주일 안에 서둘러 먹을 식재료가 없어요.</div> }
 function FullLoader({ compact = false }: { compact?: boolean }) { return <div className={`full-loader ${compact ? 'compact' : ''}`}><LoaderCircle className="spin" /><span>주방을 정리하고 있어요</span></div> }
 function dateLabel(item: InventoryItem) { const days = getDaysLeft(item); if (!Number.isFinite(days)) return '기한 미설정'; if (days < 0) return `${Math.abs(days)}일 지남`; if (days === 0) return '오늘까지'; return `${days}일 남음` }
 function normalize(value: string) { return value.replace(/\s/g, '').toLowerCase() }
+function getItemCategoryVisual(item: Pick<InventoryItem, 'category' | 'product_name'>): { key: string; icon: React.ReactNode } {
+  const value = normalize(`${item.category || ''} ${item.product_name}`)
+  if (/채소|야채|나물|버섯|콩나물|시금치|오이|양파|당근|감자|고추/.test(value)) return { key: 'vegetable', icon: <Carrot /> }
+  if (/과일|사과|바나나|딸기|포도|귤|오렌지|토마토/.test(value)) return { key: 'fruit', icon: <Apple /> }
+  if (/육류|고기|돼지|소|닭|햄|소시지/.test(value)) return { key: 'meat', icon: <Beef /> }
+  if (/수산|생선|해물|오징어|새우|조개|참치|멸치|어묵/.test(value)) return { key: 'seafood', icon: <Fish /> }
+  if (/달걀|계란/.test(value)) return { key: 'egg', icon: <Egg /> }
+  if (/유제품|우유|치즈|요거트|버터/.test(value)) return { key: 'dairy', icon: <Milk /> }
+  if (/곡류|면|쌀|밥|국수|라면|떡|식빵|빵/.test(value)) return { key: 'grain', icon: <Wheat /> }
+  if (/음료|주스|탄산|커피|차|물/.test(value)) return { key: 'drink', icon: <CupSoda /> }
+  if (/조미료|소스|간장|고추장|된장|식초|참기름|소금|설탕/.test(value)) return { key: 'sauce', icon: <CookingPot /> }
+  if (/간식|과자|초콜릿|캔디/.test(value)) return { key: 'snack', icon: <Cookie /> }
+  if (/냉동/.test(value)) return { key: 'frozen', icon: <Snowflake /> }
+  return { key: 'other', icon: <Package /> }
+}
 function normalizeIngredient(value: string) {
   return normalize(value)
     .replaceAll('달걀', '계란')
