@@ -15,5 +15,6 @@ export async function uploadInventoryImage(file: File, kitchenId: string, profil
 
 export function getInventoryImageUrl(path: string | null) {
   if (!path) return ''
+  if (/^https?:\/\//i.test(path)) return path
   return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl
 }

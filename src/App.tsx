@@ -32,6 +32,7 @@ function App() {
   const [setupError, setSetupError] = useState('')
   const [tab, setTab] = useState<Tab>('home')
   const [addOpen, setAddOpen] = useState(false)
+  const [addTargetSpaceId, setAddTargetSpaceId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [notificationsOpen, setNotificationsOpen] = useState(false)
 
@@ -77,7 +78,7 @@ function App() {
         <main className="screen"><KitchenSetup kitchenId={data.kitchen.id} onCreated={refresh} /></main>
       ) : (
         <main className="screen">
-          {tab === 'home' && <HomeScreen data={data} query={query} setQuery={setQuery} goSearch={() => setTab('search')} onAdd={() => setAddOpen(true)} />}
+          {tab === 'home' && <HomeScreen data={data} query={query} setQuery={setQuery} goSearch={() => setTab('search')} onAdd={(spaceId) => { setAddTargetSpaceId(spaceId || null); setAddOpen(true) }} />}
           {tab === 'map' && <KitchenMap data={data} demoMode={demoMode} onChanged={refresh} />}
           {tab === 'search' && <SearchScreen data={data} query={query} setQuery={setQuery} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onChanged={refresh} />}
           {tab === 'recipes' && <RecipeScreen data={data} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onChanged={refresh} />}
@@ -85,8 +86,8 @@ function App() {
         </main>
       )}
 
-      {data && (demoMode || data.spaces.length > 0) && <BottomNav tab={tab} setTab={setTab} onAdd={() => setAddOpen(true)} />}
-      {addOpen && data && data.spaces.length > 0 && <AddItemSheet data={data} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onClose={() => setAddOpen(false)} onSaved={async () => { setAddOpen(false); await refresh() }} />}
+      {data && (demoMode || data.spaces.length > 0) && <BottomNav tab={tab} setTab={setTab} onAdd={() => { setAddTargetSpaceId(null); setAddOpen(true) }} />}
+      {addOpen && data && data.spaces.length > 0 && <AddItemSheet data={data} initialSpaceId={addTargetSpaceId} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onClose={() => setAddOpen(false)} onSaved={async () => { setAddOpen(false); await refresh() }} />}
       {notificationsOpen && <NotificationsSheet notifications={data?.notifications || []} demoMode={demoMode} profileId={profile?.id || ''} onClose={() => setNotificationsOpen(false)} onRead={refresh} />}
     </div>
   )
@@ -176,24 +177,31 @@ function LoginPage({ onSignIn, onSignUp, onDemo }: { onSignIn: (username: string
   </main>
 }
 
-function HomeScreen({ data, query, setQuery, goSearch, onAdd }: { data: AppData; query: string; setQuery: (v: string) => void; goSearch: () => void; onAdd: () => void }) {
+function HomeScreen({ data, query, setQuery, goSearch, onAdd }: { data: AppData; query: string; setQuery: (v: string) => void; goSearch: () => void; onAdd: (spaceId?: string) => void }) {
+  const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null)
   const urgent = [...data.items].sort((a, b) => getDaysLeft(a) - getDaysLeft(b)).filter((item) => getDaysLeft(item) <= 3)
   const match = getRecipeMatch(data.recipes[0], data.items)
+  const selectedSpace = data.spaces.find((space) => space.id === selectedSpaceId) || null
+  const selectedItems = selectedSpace ? data.items.filter((item) => item.storage_space_id === selectedSpace.id) : []
+  const spaces = <>
+    <div className="space-summary">{data.spaces.map((space) => <button className={selectedSpaceId === space.id ? 'selected' : ''} key={space.id} onClick={() => setSelectedSpaceId((current) => current === space.id ? null : space.id)}><span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>{space.item_count || 0}개</small></button>)}</div>
+    {selectedSpace && <section className="home-space-detail"><div className="home-space-detail-head"><div><span>{spaceIcons[selectedSpace.space_type] || <Box />}</span><div><h3>{selectedSpace.name}</h3><p>{selectedSpace.alias || selectedSpace.memo || `${selectedItems.length}개의 식재료를 보관 중이에요.`}</p></div></div><button onClick={() => onAdd(selectedSpace.id)}><Plus /> 이 공간에 추가</button></div>{selectedItems.length ? <div className="home-space-items">{selectedItems.map((item) => <ItemRow key={item.id} item={item} />)}</div> : <div className="home-space-empty"><PackageCheck /><p>아직 보관한 식재료가 없어요.</p><button onClick={() => onAdd(selectedSpace.id)}>첫 식재료 추가하기</button></div>}</section>}
+  </>
   if (data.items.length === 0) return <>
     <section className="welcome"><div><p>주방 공간이 준비됐어요 👋</p><h1>{data.kitchen.name}</h1></div><span className="item-total">식재료 <b>0</b>개</span></section>
-    <section className="empty-inventory-home"><div><PackageCheck /></div><h2>아직 등록한 식재료가 없어요</h2><p>첫 상품을 등록하면 소비기한, 보관 위치와<br />추천 레시피를 여기서 확인할 수 있어요.</p><button onClick={onAdd}><Plus /> 첫 식재료 등록하기</button></section>
+    <section className="empty-inventory-home"><div><PackageCheck /></div><h2>아직 등록한 식재료가 없어요</h2><p>아래 보관공간을 선택하면<br />그 공간에 첫 식재료를 추가할 수 있어요.</p></section>
     <SectionTitle title="만든 보관공간" action={`${data.spaces.length}개`} />
-    <div className="space-summary">{data.spaces.slice(0, 4).map((space) => <div key={space.id}><span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>0개</small></div>)}</div>
+    {spaces}
   </>
   return <>
     <section className="welcome"><div><p>오늘도 알뜰하게 👋</p><h1>{data.kitchen.name}</h1></div><span className="item-total">식재료 <b>{data.items.length}</b>개</span></section>
     <label className="global-search" onClick={goSearch}><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="식재료, 메모, 보관 위치 검색" /><Settings2 /></label>
     <SectionTitle title="오늘까지 먹어요" action={`${urgent.length}개 확인`} />
     <div className="expiry-scroll">{urgent.length ? urgent.map((item) => <ItemMiniCard item={item} key={item.id} />) : <EmptyMini />}</div>
+    <SectionTitle title="우리 집 보관공간" action={`${data.spaces.length}개`} />
+    {spaces}
     <SectionTitle title="오늘의 냉장고 털기" action="보유 재료 기준" />
     <article className="recipe-hero"><div className="recipe-art">🍲</div><div><span className="eyebrow">임박 재료 우선</span><h2>{data.recipes[0]?.title || '첫 레시피를 등록해 보세요'}</h2><p>{data.recipes[0]?.summary}</p><div className="match-row"><Check /> 집에 있는 재료 {match.have}개</div></div><ChevronRight /></article>
-    <SectionTitle title="우리 집 보관공간" action={`${data.spaces.length}개`} />
-    <div className="space-summary">{data.spaces.slice(0, 4).map((space) => <div key={space.id}><span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>{space.item_count || 0}개</small></div>)}</div>
   </>
 }
 
@@ -365,7 +373,7 @@ function RecipeScreen({ data, profileId, demoMode, onChanged }: { data: AppData;
   </>
 }
 
-function AddItemSheet({ data, profileId, demoMode, onClose, onSaved }: { data: AppData; profileId: string; demoMode: boolean; onClose: () => void; onSaved: () => Promise<void> }) {
+function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSaved }: { data: AppData; initialSpaceId: string | null; profileId: string; demoMode: boolean; onClose: () => void; onSaved: () => Promise<void> }) {
   const [mode, setMode] = useState<'barcode' | 'manual'>('barcode')
   const [busy, setBusy] = useState(false)
   const [barcode, setBarcode] = useState('')
@@ -373,26 +381,27 @@ function AddItemSheet({ data, profileId, demoMode, onClose, onSaved }: { data: A
   const [alias, setAlias] = useState('')
   const [quantity, setQuantity] = useState('1')
   const [unit, setUnit] = useState('개')
-  const [spaceId, setSpaceId] = useState(data.spaces[0]?.id || '')
+  const [spaceId, setSpaceId] = useState(initialSpaceId || data.spaces[0]?.id || '')
   const [expiration, setExpiration] = useState('')
   const [useBy, setUseBy] = useState('')
   const [memo, setMemo] = useState('')
   const [category, setCategory] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState('')
+  const [barcodeImageUrl, setBarcodeImageUrl] = useState('')
 
   const findBarcode = async (nextBarcode = barcode) => {
     if (!nextBarcode) return
     setBarcode(nextBarcode)
     setBusy(true)
-    try { const found = await lookupBarcode(nextBarcode); if (found) { setName(found.name); setPreview(found.imageUrl) } else alert('바코드는 인식했지만 상품 정보를 찾지 못했어요. 상품명을 직접 입력해 주세요.') } finally { setBusy(false) }
+    try { const found = await lookupBarcode(nextBarcode); if (found) { setName(found.name); setBarcodeImageUrl(found.imageUrl); setPreview(found.imageUrl) } else alert('바코드는 인식했지만 상품 정보를 찾지 못했어요. 상품명을 직접 입력해 주세요.') } finally { setBusy(false) }
   }
   const save = async () => {
     if (!name.trim() || !spaceId) return alert('상품명과 보관 위치는 필수입니다.')
     if (demoMode) { alert('등록 흐름을 확인했어요. 로그인 후에는 실제로 저장됩니다.'); await onSaved(); return }
     setBusy(true)
     try {
-      const imagePath = file ? await uploadInventoryImage(file, data.kitchen.id, profileId) : null
+      const imagePath = file ? await uploadInventoryImage(file, data.kitchen.id, profileId) : barcodeImageUrl || null
       await createInventoryItem({ kitchen_id: data.kitchen.id, storage_space_id: spaceId, created_by: profileId, product_name: name.trim(), alias: alias.trim() || null, barcode: barcode || null, image_path: imagePath, category: category || null, quantity: Number(quantity) || 1, unit, purchased_at: new Date().toISOString().slice(0, 10), opened_at: null, expiration_date: expiration || null, use_by_date: useBy || null, recommended_use_date: null, memo: memo.trim() || null, registration_method: mode })
       await onSaved()
     } catch (error) { alert(error instanceof Error ? error.message : '저장하지 못했습니다.') } finally { setBusy(false) }
@@ -400,7 +409,7 @@ function AddItemSheet({ data, profileId, demoMode, onClose, onSaved }: { data: A
   return <div className="sheet-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><section className="add-sheet"><div className="sheet-handle" /><div className="sheet-head"><div><p>10초 안에 빠르게</p><h2>식재료 추가</h2></div><button onClick={onClose}><X /></button></div>
     <div className="mode-tabs"><button className={mode === 'barcode' ? 'active' : ''} onClick={() => setMode('barcode')}><ScanLine /> 바코드</button><button className={mode === 'manual' ? 'active' : ''} onClick={() => setMode('manual')}><PenLine /> 직접 입력</button></div>
     {mode === 'barcode' && <><BarcodeCameraScanner onDetected={findBarcode} /><details className="barcode-manual"><summary>번호를 직접 입력할게요</summary><div><input inputMode="numeric" value={barcode} onChange={(e) => setBarcode(e.target.value.replace(/\D/g, ''))} placeholder="880..." /><button onClick={() => void findBarcode()}>조회</button></div></details></>}
-    <label className="photo-field">{preview ? <img src={preview} /> : <Camera />}<span>{file ? file.name : '상품 사진 촬영 또는 선택'}</span><input type="file" accept="image/*" capture="environment" onChange={(e) => { const selected = e.target.files?.[0] || null; setFile(selected); if (selected) setPreview(URL.createObjectURL(selected)) }} /></label>
+    <label className="photo-field">{preview ? <img src={preview} /> : <Camera />}<span>{file ? file.name : barcodeImageUrl ? '바코드 상품 사진을 함께 저장해요' : '상품 사진 촬영 또는 선택'}</span><input type="file" accept="image/*" capture="environment" onChange={(e) => { const selected = e.target.files?.[0] || null; setFile(selected); if (selected) { setBarcodeImageUrl(''); setPreview(URL.createObjectURL(selected)) } }} /></label>
     <div className="form-grid"><label className="full"><span>상품명 *</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 사과" /></label><label><span>별칭</span><input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder="아침용" /></label><label><span>카테고리</span><input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="과일" /></label><label><span>수량</span><input type="number" min="0" step="0.1" value={quantity} onChange={(e) => setQuantity(e.target.value)} /></label><label><span>단위</span><select value={unit} onChange={(e) => setUnit(e.target.value)}><option>개</option><option>팩</option><option>병</option><option>봉</option><option>g</option><option>kg</option><option>모</option></select></label><label className="full"><span>보관 위치 *</span><select value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>{data.spaces.map((space) => <option key={space.id} value={space.id}>{space.name}{space.alias ? ` · ${space.alias}` : ''}</option>)}</select></label><label><span>유통기한</span><input type="date" value={expiration} onChange={(e) => setExpiration(e.target.value)} /></label><label><span>소비기한</span><input type="date" value={useBy} onChange={(e) => setUseBy(e.target.value)} /></label><label className="full"><span>메모</span><textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="보관법이나 구입처를 적어두세요." /></label></div>
     <button className="primary-button" disabled={busy} onClick={save}>{busy ? <LoaderCircle className="spin" /> : <PackageCheck />} 저장하기</button>
   </section></div>
