@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Apple, Bell, BookOpen, Box, Camera, Check, ChevronRight, CircleUserRound,
   Clock3, DoorOpen, Home, LayoutGrid, List, LoaderCircle, LogOut, Map, PackageCheck, PenLine,
@@ -204,6 +204,8 @@ function KitchenMap({ data, demoMode, onChanged }: { data: AppData; demoMode: bo
   const [formSpace, setFormSpace] = useState<StorageSpace | 'new' | null>(null)
   const [busy, setBusy] = useState(false)
   const [view, setView] = useState<'map' | 'list'>('map')
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null)
+  const didDragRef = useRef(false)
 
   useEffect(() => setSpaces(data.spaces), [data.spaces])
 
@@ -212,14 +214,43 @@ function KitchenMap({ data, demoMode, onChanged }: { data: AppData; demoMode: bo
     setSelected((current) => current?.id === id ? { ...current, ...changes } : current)
   }
 
+  const overlapsAnotherSpace = (candidate: StorageSpace) => spaces.some((other) => {
+    if (other.id === candidate.id) return false
+    return candidate.map_x < other.map_x + other.map_width
+      && candidate.map_x + candidate.map_width > other.map_x
+      && candidate.map_y < other.map_y + other.map_height
+      && candidate.map_y + candidate.map_height > other.map_y
+  })
+
+  const updateGeometry = (space: StorageSpace, changes: Partial<StorageSpace>) => {
+    const candidate = { ...space, ...changes }
+    if (overlapsAnotherSpace(candidate)) return false
+    updateDraft(space.id, changes)
+    return true
+  }
+
+  const findEmptyPosition = () => {
+    for (let row = 0; row < 12; row += 1) {
+      for (let column = 0; column < 4; column += 1) {
+        const occupied = spaces.some((space) => column < space.map_x + space.map_width && column + 1 > space.map_x && row < space.map_y + space.map_height && row + 1 > space.map_y)
+        if (!occupied) return { map_x: column, map_y: row }
+      }
+    }
+    return { map_x: 0, map_y: 12 }
+  }
+
   const movePointer = (event: React.PointerEvent<HTMLButtonElement>, space: StorageSpace) => {
     if (!editing || draggingId !== space.id) return
+    const start = dragStartRef.current
+    if (!start) return
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) < 7) return
+    didDragRef.current = true
     const map = event.currentTarget.parentElement
     if (!map) return
     const rect = map.getBoundingClientRect()
     const column = Math.max(0, Math.min(4 - space.map_width, Math.floor(((event.clientX - rect.left) / rect.width) * 4)))
-    const row = Math.max(0, Math.min(5, Math.floor((event.clientY - rect.top) / 117)))
-    updateDraft(space.id, { map_x: column, map_y: row })
+    const row = Math.max(0, Math.min(12 - space.map_height, Math.floor((event.clientY - rect.top) / 117)))
+    updateGeometry(space, { map_x: column, map_y: row })
   }
 
   const saveLayout = async () => {
@@ -241,9 +272,9 @@ function KitchenMap({ data, demoMode, onChanged }: { data: AppData; demoMode: bo
     <div className="page-heading"><div><p>{editing ? '블록을 끌어 배치하고 크기를 조절하세요' : '공간을 누르면 안이 펼쳐져요'}</p><h1>주방 관리</h1></div>{view === 'map' && (editing ? <div className="map-edit-actions"><button onClick={() => { setSpaces(data.spaces); setEditing(false) }}>취소</button><button className="save" disabled={busy} onClick={saveLayout}>{busy ? <LoaderCircle className="spin" /> : <Check />} 저장</button></div> : <button className="icon-text" onClick={() => { setEditing(true); setSelected(null) }}><PenLine /> 배치 편집</button>)}</div>
     <div className="view-toggle"><button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}><Map /> 주방맵</button><button className={view === 'list' ? 'active' : ''} onClick={() => { setView('list'); setEditing(false) }}><List /> 목록 보기</button></div>
     {view === 'map' ? <section className={`kitchen-map ${editing ? 'editing' : ''}`}>
-      {spaces.map((space) => <button key={space.id} className={`map-block type-${space.space_type} ${draggingId === space.id ? 'dragging' : ''}`} style={{ gridColumn: `${space.map_x + 1} / span ${Math.max(1, space.map_width)}`, gridRow: `${space.map_y + 1} / span ${Math.max(1, space.map_height)}` }} onClick={() => editing ? setFormSpace(space) : setSelected(space)} onPointerDown={(event) => { if (!editing) return; setDraggingId(space.id); event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={(event) => movePointer(event, space)} onPointerUp={() => setDraggingId(null)}>
+      {spaces.map((space) => <button key={space.id} className={`map-block type-${space.space_type} ${draggingId === space.id ? 'dragging' : ''}`} style={{ gridColumn: `${space.map_x + 1} / span ${Math.max(1, space.map_width)}`, gridRow: `${space.map_y + 1} / span ${Math.max(1, space.map_height)}` }} onClick={() => { if (didDragRef.current) { didDragRef.current = false; return } editing ? setFormSpace(space) : setSelected(space) }} onPointerDown={(event) => { if (!editing) return; didDragRef.current = false; dragStartRef.current = { x: event.clientX, y: event.clientY }; setDraggingId(space.id); event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={(event) => movePointer(event, space)} onPointerUp={() => { setDraggingId(null); dragStartRef.current = null; if (didDragRef.current) window.setTimeout(() => { didDragRef.current = false }, 0) }} onPointerCancel={() => { setDraggingId(null); dragStartRef.current = null; didDragRef.current = false }}>
         {space.expiring_count ? <i>{space.expiring_count}</i> : null}<span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>{space.alias || `${space.item_count || 0}개 보관 중`}</small>
-        {editing && <div className="resize-controls"><span title="가로 줄이기" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); updateDraft(space.id, { map_width: Math.max(1, space.map_width - 1) }) }}>↔−</span><span title="가로 늘이기" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); updateDraft(space.id, { map_width: Math.min(4 - space.map_x, space.map_width + 1) }) }}>↔+</span><span title="세로 줄이기" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); updateDraft(space.id, { map_height: Math.max(1, space.map_height - 1) }) }}>↕−</span><span title="세로 늘이기" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); updateDraft(space.id, { map_height: Math.min(4, space.map_height + 1) }) }}>↕+</span></div>}
+        {editing && <div className="resize-controls"><span title="가로 줄이기" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); updateGeometry(space, { map_width: Math.max(1, space.map_width - 1) }) }}>↔−</span><span title="가로 늘이기" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); updateGeometry(space, { map_width: Math.min(4 - space.map_x, space.map_width + 1) }) }}>↔+</span><span title="세로 줄이기" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); updateGeometry(space, { map_height: Math.max(1, space.map_height - 1) }) }}>↕−</span><span title="세로 늘이기" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); updateGeometry(space, { map_height: Math.min(6, space.map_height + 1) }) }}>↕+</span></div>}
       </button>)}
       <button className="map-add" onClick={() => setFormSpace('new')}><Plus /> 공간 추가</button>
     </section> : <section className="space-list-view">
@@ -254,9 +285,10 @@ function KitchenMap({ data, demoMode, onChanged }: { data: AppData; demoMode: bo
     {selected && <div className="space-drawer"><div><span>{spaceIcons[selected.space_type] || <Box />}</span><div><h2>{selected.name}</h2><p>{selected.alias || selected.memo || '별칭이나 메모가 없습니다.'}</p></div><button onClick={() => setSelected(null)}><X /></button></div>{data.items.filter((item) => item.storage_space_id === selected.id).length ? data.items.filter((item) => item.storage_space_id === selected.id).map((item) => <ItemRow key={item.id} item={item} />) : <p className="empty-space-message">이 공간에 등록된 식재료가 없어요.</p>}</div>}
     {formSpace && <SpaceForm space={formSpace === 'new' ? null : formSpace} kitchenId={data.kitchen.id} demoMode={demoMode} onClose={() => setFormSpace(null)} onDelete={removeSpace} onSave={async (values) => {
       if (formSpace === 'new') {
-        const newSpace = { ...values, id: `demo-${Date.now()}`, kitchen_id: data.kitchen.id, map_x: 0, map_y: 3, map_width: 1, map_height: 1, sort_order: spaces.length + 1, item_count: 0, expiring_count: 0 } as StorageSpace
+        const emptyPosition = findEmptyPosition()
+        const newSpace = { ...values, id: `demo-${Date.now()}`, kitchen_id: data.kitchen.id, ...emptyPosition, map_width: 1, map_height: 1, sort_order: spaces.length + 1, item_count: 0, expiring_count: 0 } as StorageSpace
         if (demoMode) setSpaces((current) => [...current, newSpace])
-        else { await createStorageSpace({ ...values, kitchen_id: data.kitchen.id, name: String(values.name), space_type: String(values.space_type), map_x: 0, map_y: 3, map_width: 1, map_height: 1, sort_order: spaces.length + 1 }); await onChanged() }
+        else { await createStorageSpace({ ...values, kitchen_id: data.kitchen.id, name: String(values.name), space_type: String(values.space_type), ...emptyPosition, map_width: 1, map_height: 1, sort_order: spaces.length + 1 }); await onChanged() }
       } else if (demoMode) {
         updateDraft(formSpace.id, values)
       } else {
