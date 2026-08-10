@@ -1,8 +1,9 @@
 import { supabase } from '../lib/supabase'
-import type { AppNotification, InventoryItem, Kitchen, Recipe, StorageSpace } from '../types'
+import type { AppNotification, InventoryItem, Kitchen, KitchenMap, Recipe, StorageSpace } from '../types'
 
 export type AppData = {
   kitchen: Kitchen
+  maps: KitchenMap[]
   spaces: StorageSpace[]
   items: InventoryItem[]
   recipes: Recipe[]
@@ -22,7 +23,8 @@ export async function loadAppData(profileId: string): Promise<AppData> {
   if (membershipError) throw membershipError
   const kitchen = membership.kitchens as unknown as Kitchen
 
-  const [spacesResult, itemsResult, recipesResult, savedRecipesResult, notificationsResult] = await Promise.all([
+  const [mapsResult, spacesResult, itemsResult, recipesResult, savedRecipesResult, notificationsResult] = await Promise.all([
+    supabase.from('kitchen_maps').select('*').eq('kitchen_id', kitchen.id).order('sort_order'),
     supabase.from('storage_spaces').select('*').eq('kitchen_id', kitchen.id).order('sort_order'),
     supabase
       .from('inventory_items')
@@ -39,6 +41,7 @@ export async function loadAppData(profileId: string): Promise<AppData> {
     supabase.from('notifications').select('id, profile_id, title, message, is_read, created_at').eq('profile_id', profileId).order('created_at', { ascending: false }).limit(30),
   ])
 
+  if (mapsResult.error) throw mapsResult.error
   if (spacesResult.error) throw spacesResult.error
   if (itemsResult.error) throw itemsResult.error
   if (recipesResult.error) throw recipesResult.error
@@ -54,6 +57,7 @@ export async function loadAppData(profileId: string): Promise<AppData> {
 
   return {
     kitchen,
+    maps: (mapsResult.data || []) as KitchenMap[],
     spaces,
     items,
     recipes: (recipesResult.data || []) as Recipe[],
@@ -114,6 +118,22 @@ export async function createStorageSpace(input: Partial<StorageSpace> & Pick<Sto
   return data
 }
 
+export async function createKitchenMap(kitchenId: string, name: string, sortOrder: number) {
+  const { data, error } = await supabase.from('kitchen_maps').insert({ kitchen_id: kitchenId, name, sort_order: sortOrder }).select().single()
+  if (error) throw error
+  return data as KitchenMap
+}
+
+export async function updateKitchenMap(mapId: string, name: string) {
+  const { error } = await supabase.from('kitchen_maps').update({ name }).eq('id', mapId)
+  if (error) throw error
+}
+
+export async function deleteKitchenMap(mapId: string) {
+  const { error } = await supabase.from('kitchen_maps').delete().eq('id', mapId)
+  if (error) throw error
+}
+
 export async function updateStorageSpace(spaceId: string, input: Partial<StorageSpace>) {
   const { data, error } = await supabase.from('storage_spaces').update(input).eq('id', spaceId).select().single()
   if (error) throw error
@@ -153,6 +173,7 @@ export async function updateStorageSpaces(spaces: StorageSpace[]) {
       memo: space.memo,
       color: space.color,
       icon: space.icon,
+      map_id: space.map_id,
       map_x: space.map_x,
       map_y: space.map_y,
       map_width: space.map_width,

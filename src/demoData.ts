@@ -8,12 +8,13 @@ const isoAfter = (days: number) => {
 
 export const demoData: AppData = {
   kitchen: { id: 'demo-kitchen', name: '우리 집 주방', owner_profile_id: 'demo-profile' },
+  maps: [{ id: 'demo-map', kitchen_id: 'demo-kitchen', name: '주방', sort_order: 1 }],
   spaces: [
-    { id: 'fridge', kitchen_id: 'demo-kitchen', name: '냉장실', alias: '큰 냉장고', space_type: 'fridge', memo: null, color: '#a8c9bd', icon: 'fridge', map_x: 0, map_y: 0, map_width: 1, map_height: 2, sort_order: 1, item_count: 5, expiring_count: 3 },
-    { id: 'freezer', kitchen_id: 'demo-kitchen', name: '냉동실', alias: null, space_type: 'freezer', memo: null, color: '#a8c9bd', icon: 'snowflake', map_x: 0, map_y: 2, map_width: 1, map_height: 1, sort_order: 2, item_count: 2, expiring_count: 0 },
-    { id: 'lower', kitchen_id: 'demo-kitchen', name: '싱크대 하부장', alias: '세제 옆', space_type: 'under_sink', memo: null, color: '#91aaa1', icon: 'cabinet', map_x: 1, map_y: 1, map_width: 2, map_height: 1, sort_order: 3, item_count: 4, expiring_count: 1 },
-    { id: 'upper', kitchen_id: 'demo-kitchen', name: '상부장', alias: null, space_type: 'cabinet', memo: null, color: '#dec39d', icon: 'cabinet', map_x: 1, map_y: 0, map_width: 2, map_height: 1, sort_order: 4, item_count: 8, expiring_count: 0 },
-    { id: 'pantry', kitchen_id: 'demo-kitchen', name: '팬트리', alias: '베란다 선반', space_type: 'pantry', memo: null, color: '#cba878', icon: 'shelves', map_x: 3, map_y: 0, map_width: 1, map_height: 3, sort_order: 5, item_count: 11, expiring_count: 1 },
+    { id: 'fridge', kitchen_id: 'demo-kitchen', map_id: 'demo-map', name: '냉장실', alias: '큰 냉장고', space_type: 'fridge', memo: null, color: '#a8c9bd', icon: 'fridge', map_x: 0, map_y: 0, map_width: 1, map_height: 2, sort_order: 1, item_count: 5, expiring_count: 3 },
+    { id: 'freezer', kitchen_id: 'demo-kitchen', map_id: 'demo-map', name: '냉동실', alias: null, space_type: 'freezer', memo: null, color: '#a8c9bd', icon: 'snowflake', map_x: 0, map_y: 2, map_width: 1, map_height: 1, sort_order: 2, item_count: 2, expiring_count: 0 },
+    { id: 'lower', kitchen_id: 'demo-kitchen', map_id: 'demo-map', name: '싱크대 하부장', alias: '세제 옆', space_type: 'under_sink', memo: null, color: '#91aaa1', icon: 'cabinet', map_x: 1, map_y: 1, map_width: 2, map_height: 1, sort_order: 3, item_count: 4, expiring_count: 1 },
+    { id: 'upper', kitchen_id: 'demo-kitchen', map_id: 'demo-map', name: '상부장', alias: null, space_type: 'cabinet', memo: null, color: '#dec39d', icon: 'cabinet', map_x: 1, map_y: 0, map_width: 2, map_height: 1, sort_order: 4, item_count: 8, expiring_count: 0 },
+    { id: 'pantry', kitchen_id: 'demo-kitchen', map_id: 'demo-map', name: '팬트리', alias: '베란다 선반', space_type: 'pantry', memo: null, color: '#cba878', icon: 'shelves', map_x: 3, map_y: 0, map_width: 1, map_height: 3, sort_order: 5, item_count: 11, expiring_count: 1 },
   ],
   items: [
     { id: 'tomato', kitchen_id: 'demo-kitchen', storage_space_id: 'fridge', product_name: '토마토', alias: '샐러드용', barcode: null, image_path: null, category: '채소', quantity: 2, unit: '개', purchased_at: null, opened_at: null, expiration_date: null, use_by_date: null, recommended_use_date: isoAfter(0), memo: '아래 야채칸', status: 'active', created_at: new Date().toISOString(), storage_spaces: { id: 'fridge', name: '냉장실', alias: '큰 냉장고', space_type: 'fridge' } },

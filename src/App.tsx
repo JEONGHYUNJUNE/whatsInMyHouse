@@ -9,12 +9,12 @@ import { useAuth } from './contexts/AuthContext'
 import { demoData } from './demoData'
 import { isSupabaseConfigured } from './lib/supabase'
 import {
-  consumeInventoryItems, createInventoryItem, createStorageSpace, deleteStorageSpace, finishInventoryItem, getDaysLeft, loadAppData, lookupBarcode,
+  consumeInventoryItems, createInventoryItem, createKitchenMap, createStorageSpace, deleteKitchenMap, deleteStorageSpace, finishInventoryItem, getDaysLeft, loadAppData, lookupBarcode,
   markNotificationsRead, moveInventoryItem, toggleSavedRecipe, updateKitchenName, updateProfileNickname, updateStorageSpace,
-  updateInventoryItem, updateStorageSpaces, type AppData,
+  updateInventoryItem, updateKitchenMap, updateStorageSpaces, type AppData,
 } from './services/kitchenService'
 import { getInventoryImageUrl, uploadInventoryImage } from './services/imageService'
-import type { AppNotification, InventoryItem, Profile, Recipe, StorageSpace } from './types'
+import type { AppNotification, InventoryItem, KitchenMap as KitchenMapPage, Profile, Recipe, StorageSpace } from './types'
 import './onboarding.css'
 
 type Tab = 'home' | 'map' | 'search' | 'consume' | 'recipes' | 'profile'
@@ -78,7 +78,7 @@ function App() {
       {dataLoading ? <FullLoader compact /> : !data ? (
         <main className="screen"><DataLoadError onRetry={refresh} /></main>
       ) : !demoMode && data.spaces.length === 0 ? (
-        <main className="screen"><KitchenSetup kitchenId={data.kitchen.id} onCreated={refresh} /></main>
+        <main className="screen"><KitchenSetup kitchenId={data.kitchen.id} mapId={data.maps[0]?.id || ''} onCreated={refresh} /></main>
       ) : (
         <main className="screen">
           {tab === 'home' && <HomeScreen data={data} query={query} setQuery={setQuery} goSearch={() => setTab('search')} onSelectItem={setSelectedItem} onAdd={(spaceId) => { setAddTargetSpaceId(spaceId || null); setAddOpen(true) }} />}
@@ -98,7 +98,7 @@ function App() {
   )
 }
 
-function KitchenSetup({ kitchenId, onCreated }: { kitchenId: string; onCreated: () => Promise<void> }) {
+function KitchenSetup({ kitchenId, mapId, onCreated }: { kitchenId: string; mapId: string; onCreated: () => Promise<void> }) {
   const [name, setName] = useState('')
   const [type, setType] = useState('fridge')
   const [busy, setBusy] = useState(false)
@@ -112,6 +112,7 @@ function KitchenSetup({ kitchenId, onCreated }: { kitchenId: string; onCreated: 
     try {
       await createStorageSpace({
         kitchen_id: kitchenId,
+        map_id: mapId,
         name: name.trim(),
         space_type: type,
         color: type === 'fridge' || type === 'freezer' ? '#BFD3CB' : '#EAD3AE',
@@ -186,6 +187,7 @@ function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem }: { 
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null)
   const [spaceView, setSpaceView] = useState<'list' | 'map'>('list')
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null)
+  const [activeMapId, setActiveMapId] = useState(data.maps[0]?.id || '')
   const spaceDetailRef = useRef<HTMLElement | null>(null)
   const urgent = [...data.items].sort((a, b) => getDaysLeft(a) - getDaysLeft(b)).filter((item) => getDaysLeft(item) <= 7)
   const recommendedRecipes = getRecommendedRecipes(data.recipes, data.items)
@@ -193,7 +195,11 @@ function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem }: { 
   const match = getRecipeMatch(dailyRecipe, data.items)
   const selectedSpace = data.spaces.find((space) => space.id === selectedSpaceId) || null
   const selectedItems = selectedSpace ? data.items.filter((item) => item.storage_space_id === selectedSpace.id) : []
+  const activeMapSpaces = data.spaces.filter((space) => space.map_id === activeMapId)
   const selectSpace = (spaceId: string) => setSelectedSpaceId((current) => current === spaceId ? null : spaceId)
+  useEffect(() => {
+    if (!data.maps.some((map) => map.id === activeMapId)) setActiveMapId(data.maps[0]?.id || '')
+  }, [data.maps, activeMapId])
   useEffect(() => {
     if (!selectedSpaceId) return
     const frame = window.requestAnimationFrame(() => {
@@ -204,7 +210,7 @@ function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem }: { 
   }, [selectedSpaceId])
   const spaces = <>
     <div className="home-space-view-toggle" role="group" aria-label="보관공간 보기 방식"><button className={spaceView === 'list' ? 'active' : ''} onClick={() => setSpaceView('list')}><LayoutGrid /> 목록</button><button className={spaceView === 'map' ? 'active' : ''} onClick={() => setSpaceView('map')}><Map /> 주방맵</button></div>
-    {spaceView === 'list' ? <div className="space-summary">{data.spaces.map((space) => <button className={selectedSpaceId === space.id ? 'selected' : ''} key={space.id} onClick={() => selectSpace(space.id)}><span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>{space.item_count || 0}개</small></button>)}</div> : <section className="home-kitchen-map">{data.spaces.map((space) => <button key={space.id} className={`map-block type-${space.space_type} ${selectedSpaceId === space.id ? 'selected' : ''}`} style={{ gridColumn: `${space.map_x + 1} / span ${Math.max(1, space.map_width)}`, gridRow: `${space.map_y + 1} / span ${Math.max(1, space.map_height)}` }} onClick={() => selectSpace(space.id)}>{space.expiring_count ? <i>{space.expiring_count}</i> : null}<span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>{space.alias || `${space.item_count || 0}개 보관 중`}</small></button>)}</section>}
+    {spaceView === 'list' ? <div className="space-summary">{data.spaces.map((space) => <button className={selectedSpaceId === space.id ? 'selected' : ''} key={space.id} onClick={() => selectSpace(space.id)}><span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>{space.item_count || 0}개</small></button>)}</div> : <><MapPageTabs maps={data.maps} activeMapId={activeMapId} onSelect={(mapId) => { setActiveMapId(mapId); setSelectedSpaceId(null) }} /><section className="home-kitchen-map">{activeMapSpaces.map((space) => <button key={space.id} className={`map-block type-${space.space_type} ${selectedSpaceId === space.id ? 'selected' : ''}`} style={{ gridColumn: `${space.map_x + 1} / span ${Math.max(1, space.map_width)}`, gridRow: `${space.map_y + 1} / span ${Math.max(1, space.map_height)}` }} onClick={() => selectSpace(space.id)}>{space.expiring_count ? <i>{space.expiring_count}</i> : null}<span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>{space.alias || `${space.item_count || 0}개 보관 중`}</small></button>)}</section>{activeMapSpaces.length === 0 && <p className="empty-map-message">이 맵에는 아직 보관공간이 없어요.</p>}</>}
     {selectedSpace && <section ref={spaceDetailRef} tabIndex={-1} className="home-space-detail space-focus-target"><div className="home-space-detail-head"><div><span>{spaceIcons[selectedSpace.space_type] || <Box />}</span><div><h3>{selectedSpace.name}</h3><p>{selectedSpace.alias || selectedSpace.memo || `${selectedItems.length}개의 식재료를 보관 중이에요.`}</p></div></div><button onClick={() => onAdd(selectedSpace.id)}><Plus /> 이 공간에 추가</button></div>{selectedItems.length ? <div className="home-space-items">{selectedItems.map((item) => <ItemRow key={item.id} item={item} onClick={() => onSelectItem(item)} />)}</div> : <div className="home-space-empty"><PackageCheck /><p>아직 보관한 식재료가 없어요.</p><button onClick={() => onAdd(selectedSpace.id)}>첫 식재료 추가하기</button></div>}</section>}
   </>
   if (data.items.length === 0) return <>
@@ -229,16 +235,26 @@ function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem }: { 
 function KitchenMap({ data, demoMode, onSelectItem, onAdd, onChanged }: { data: AppData; demoMode: boolean; onSelectItem: (item: InventoryItem) => void; onAdd: (spaceId: string) => void; onChanged: () => Promise<void> }) {
   const [selected, setSelected] = useState<StorageSpace | null>(null)
   const [spaces, setSpaces] = useState(data.spaces)
+  const [maps, setMaps] = useState(data.maps)
+  const [activeMapId, setActiveMapId] = useState(data.maps[0]?.id || '')
   const [editing, setEditing] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [formSpace, setFormSpace] = useState<StorageSpace | 'new' | null>(null)
+  const [formMap, setFormMap] = useState<KitchenMapPage | 'new' | null>(null)
   const [busy, setBusy] = useState(false)
   const [view, setView] = useState<'map' | 'list'>('map')
   const dragStartRef = useRef<{ x: number; y: number } | null>(null)
   const didDragRef = useRef(false)
   const spaceDrawerRef = useRef<HTMLDivElement | null>(null)
 
+  const activeMap = maps.find((map) => map.id === activeMapId) || maps[0]
+  const activeMapSpaces = spaces.filter((space) => space.map_id === activeMap?.id)
+
   useEffect(() => setSpaces(data.spaces), [data.spaces])
+  useEffect(() => {
+    setMaps(data.maps)
+    setActiveMapId((current) => data.maps.some((map) => map.id === current) ? current : data.maps[0]?.id || '')
+  }, [data.maps])
   useEffect(() => {
     if (!selected || editing) return
     const frame = window.requestAnimationFrame(() => {
@@ -255,6 +271,7 @@ function KitchenMap({ data, demoMode, onSelectItem, onAdd, onChanged }: { data: 
 
   const overlapsAnotherSpace = (candidate: StorageSpace) => spaces.some((other) => {
     if (other.id === candidate.id) return false
+    if (other.map_id !== candidate.map_id) return false
     return candidate.map_x < other.map_x + other.map_width
       && candidate.map_x + candidate.map_width > other.map_x
       && candidate.map_y < other.map_y + other.map_height
@@ -268,10 +285,10 @@ function KitchenMap({ data, demoMode, onSelectItem, onAdd, onChanged }: { data: 
     return true
   }
 
-  const findEmptyPosition = () => {
+  const findEmptyPosition = (mapId = activeMapId) => {
     for (let row = 0; row < 12; row += 1) {
       for (let column = 0; column < 4; column += 1) {
-        const occupied = spaces.some((space) => column < space.map_x + space.map_width && column + 1 > space.map_x && row < space.map_y + space.map_height && row + 1 > space.map_y)
+        const occupied = spaces.some((space) => space.map_id === mapId && column < space.map_x + space.map_width && column + 1 > space.map_x && row < space.map_y + space.map_height && row + 1 > space.map_y)
         if (!occupied) return { map_x: column, map_y: row }
       }
     }
@@ -307,11 +324,42 @@ function KitchenMap({ data, demoMode, onSelectItem, onAdd, onChanged }: { data: 
     await deleteStorageSpace(space.id); setFormSpace(null); await onChanged()
   }
 
+  const addMap = async (name: string) => {
+    if (maps.some((map) => map.name === name)) return alert('이미 같은 이름의 맵이 있어요.')
+    if (demoMode) {
+      const next = { id: `demo-map-${Date.now()}`, kitchen_id: data.kitchen.id, name, sort_order: maps.length + 1 }
+      setMaps((current) => [...current, next]); setActiveMapId(next.id); setSelected(null); setFormMap(null); return
+    }
+    try { const next = await createKitchenMap(data.kitchen.id, name, maps.length + 1); setActiveMapId(next.id); setSelected(null); setFormMap(null); await onChanged() }
+    catch (error) { alert(error instanceof Error ? error.message : '맵을 추가하지 못했습니다.') }
+  }
+
+  const renameMap = async (name: string) => {
+    if (!activeMap) return
+    if (!name || name === activeMap.name) return
+    if (maps.some((map) => map.id !== activeMap.id && map.name === name)) return alert('이미 같은 이름의 맵이 있어요.')
+    if (demoMode) { setMaps((current) => current.map((map) => map.id === activeMap.id ? { ...map, name } : map)); setFormMap(null); return }
+    try { await updateKitchenMap(activeMap.id, name); setFormMap(null); await onChanged() }
+    catch (error) { alert(error instanceof Error ? error.message : '맵 이름을 수정하지 못했습니다.') }
+  }
+
+  const removeMap = async () => {
+    if (!activeMap) return
+    if (maps.length <= 1) return alert('주방맵은 최소 한 개가 필요해요.')
+    if (activeMapSpaces.length > 0) return alert('보관공간이 있는 맵은 삭제할 수 없어요. 공간을 다른 맵으로 옮겨주세요.')
+    if (!window.confirm(`${activeMap.name} 맵을 삭제할까요?`)) return
+    const nextMap = maps.find((map) => map.id !== activeMap.id)
+    if (demoMode) setMaps((current) => current.filter((map) => map.id !== activeMap.id))
+    else { try { await deleteKitchenMap(activeMap.id); await onChanged() } catch (error) { return alert(error instanceof Error ? error.message : '맵을 삭제하지 못했습니다.') } }
+    setActiveMapId(nextMap?.id || ''); setSelected(null)
+  }
+
   return <>
     <div className="page-heading"><div><p>{editing ? '블록을 끌어 배치하고 크기를 조절하세요' : '공간을 누르면 안이 펼쳐져요'}</p><h1>주방 관리</h1></div>{view === 'map' && (editing ? <div className="map-edit-actions"><button onClick={() => { setSpaces(data.spaces); setEditing(false) }}>취소</button><button className="save" disabled={busy} onClick={saveLayout}>{busy ? <LoaderCircle className="spin" /> : <Check />} 저장</button></div> : <button className="icon-text" onClick={() => { setEditing(true); setSelected(null) }}><PenLine /> 배치 편집</button>)}</div>
     <div className="view-toggle"><button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}><Map /> 주방맵</button><button className={view === 'list' ? 'active' : ''} onClick={() => { setView('list'); setEditing(false) }}><List /> 목록 보기</button></div>
+    {view === 'map' && <div className="map-page-toolbar"><MapPageTabs maps={maps} activeMapId={activeMap?.id || ''} onSelect={(mapId) => { setActiveMapId(mapId); setSelected(null); setEditing(false) }} onAdd={() => setFormMap('new')} /><div className="map-page-actions"><button onClick={() => activeMap && setFormMap(activeMap)}><PenLine /> 이름</button><button onClick={() => void removeMap()}><X /> 삭제</button></div></div>}
     {view === 'map' ? <section className={`kitchen-map ${editing ? 'editing' : ''}`}>
-      {spaces.map((space) => <button key={space.id} className={`map-block type-${space.space_type} ${draggingId === space.id ? 'dragging' : ''}`} style={{ gridColumn: `${space.map_x + 1} / span ${Math.max(1, space.map_width)}`, gridRow: `${space.map_y + 1} / span ${Math.max(1, space.map_height)}` }} onClick={() => { if (didDragRef.current) { didDragRef.current = false; return } editing ? setFormSpace(space) : setSelected(space) }} onPointerDown={(event) => { if (!editing) return; didDragRef.current = false; dragStartRef.current = { x: event.clientX, y: event.clientY }; setDraggingId(space.id); event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={(event) => movePointer(event, space)} onPointerUp={() => { setDraggingId(null); dragStartRef.current = null; if (didDragRef.current) window.setTimeout(() => { didDragRef.current = false }, 0) }} onPointerCancel={() => { setDraggingId(null); dragStartRef.current = null; didDragRef.current = false }}>
+      {activeMapSpaces.map((space) => <button key={space.id} className={`map-block type-${space.space_type} ${draggingId === space.id ? 'dragging' : ''}`} style={{ gridColumn: `${space.map_x + 1} / span ${Math.max(1, space.map_width)}`, gridRow: `${space.map_y + 1} / span ${Math.max(1, space.map_height)}` }} onClick={() => { if (didDragRef.current) { didDragRef.current = false; return } editing ? setFormSpace(space) : setSelected(space) }} onPointerDown={(event) => { if (!editing) return; didDragRef.current = false; dragStartRef.current = { x: event.clientX, y: event.clientY }; setDraggingId(space.id); event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={(event) => movePointer(event, space)} onPointerUp={() => { setDraggingId(null); dragStartRef.current = null; if (didDragRef.current) window.setTimeout(() => { didDragRef.current = false }, 0) }} onPointerCancel={() => { setDraggingId(null); dragStartRef.current = null; didDragRef.current = false }}>
         {space.expiring_count ? <i>{space.expiring_count}</i> : null}<span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>{space.alias || `${space.item_count || 0}개 보관 중`}</small>
         {editing && <div className="resize-controls"><span title="가로 줄이기" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); updateGeometry(space, { map_width: Math.max(1, space.map_width - 1) }) }}>↔−</span><span title="가로 늘이기" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); updateGeometry(space, { map_width: Math.min(4 - space.map_x, space.map_width + 1) }) }}>↔+</span><span title="세로 줄이기" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); updateGeometry(space, { map_height: Math.max(1, space.map_height - 1) }) }}>↕−</span><span title="세로 늘이기" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); updateGeometry(space, { map_height: Math.min(6, space.map_height + 1) }) }}>↕+</span></div>}
       </button>)}
@@ -322,31 +370,48 @@ function KitchenMap({ data, demoMode, onSelectItem, onAdd, onChanged }: { data: 
     </section>}
     {view === 'map' && <p className="map-tip"><Sparkles /> {editing ? '블록을 터치한 채 원하는 칸으로 끌어보세요. 블록을 누르면 이름과 정보를 수정할 수 있어요.' : '배치 편집에서 공간의 위치와 크기를 실제 주방처럼 정리할 수 있어요.'}</p>}
     {selected && <div ref={spaceDrawerRef} tabIndex={-1} className="space-drawer space-focus-target"><div><span>{spaceIcons[selected.space_type] || <Box />}</span><div><h2>{selected.name}</h2><p>{selected.alias || selected.memo || '별칭이나 메모가 없습니다.'}</p></div><button onClick={() => setSelected(null)}><X /></button></div><button className="space-drawer-add" onClick={() => onAdd(selected.id)}><Plus /> {selected.name}에 식재료 추가</button>{data.items.filter((item) => item.storage_space_id === selected.id).length ? data.items.filter((item) => item.storage_space_id === selected.id).map((item) => <ItemRow key={item.id} item={item} onClick={() => onSelectItem(item)} />) : <p className="empty-space-message">이 공간에 등록된 식재료가 없어요.</p>}</div>}
-    {formSpace && <SpaceForm space={formSpace === 'new' ? null : formSpace} kitchenId={data.kitchen.id} demoMode={demoMode} onClose={() => setFormSpace(null)} onDelete={removeSpace} onSave={async (values) => {
+    {formSpace && <SpaceForm space={formSpace === 'new' ? null : formSpace} maps={maps} initialMapId={activeMap?.id || ''} kitchenId={data.kitchen.id} demoMode={demoMode} onClose={() => setFormSpace(null)} onDelete={removeSpace} onSave={async (values) => {
       if (formSpace === 'new') {
-        const emptyPosition = findEmptyPosition()
+        const targetMapId = String(values.map_id || activeMapId)
+        const emptyPosition = findEmptyPosition(targetMapId)
         const newSpace = { ...values, id: `demo-${Date.now()}`, kitchen_id: data.kitchen.id, ...emptyPosition, map_width: 1, map_height: 1, sort_order: spaces.length + 1, item_count: 0, expiring_count: 0 } as StorageSpace
         if (demoMode) setSpaces((current) => [...current, newSpace])
         else { await createStorageSpace({ ...values, kitchen_id: data.kitchen.id, name: String(values.name), space_type: String(values.space_type), ...emptyPosition, map_width: 1, map_height: 1, sort_order: spaces.length + 1 }); await onChanged() }
       } else if (demoMode) {
-        updateDraft(formSpace.id, values)
+        const geometry = values.map_id !== formSpace.map_id ? findEmptyPosition(String(values.map_id)) : {}
+        updateDraft(formSpace.id, { ...values, ...geometry })
       } else {
-        await updateStorageSpace(formSpace.id, values)
+        const geometry = values.map_id !== formSpace.map_id ? findEmptyPosition(String(values.map_id)) : {}
+        await updateStorageSpace(formSpace.id, { ...values, ...geometry })
         await onChanged()
       }
       setFormSpace(null)
     }} />}
+    {formMap && <MapForm map={formMap === 'new' ? null : formMap} defaultName={`새 공간 ${maps.length + 1}`} onClose={() => setFormMap(null)} onSave={(name) => formMap === 'new' ? addMap(name) : renameMap(name)} />}
   </>
 }
 
-function SpaceForm({ space, kitchenId, demoMode, onClose, onDelete, onSave }: { space: StorageSpace | null; kitchenId: string; demoMode: boolean; onClose: () => void; onDelete: (space: StorageSpace) => Promise<void>; onSave: (values: Partial<StorageSpace>) => Promise<void> }) {
+function MapForm({ map, defaultName, onClose, onSave }: { map: KitchenMapPage | null; defaultName: string; onClose: () => void; onSave: (name: string) => Promise<void> }) {
+  const [name, setName] = useState(map?.name || defaultName)
+  const [busy, setBusy] = useState(false)
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!name.trim()) return
+    setBusy(true)
+    try { await onSave(name.trim()) } finally { setBusy(false) }
+  }
+  return <div className="sheet-backdrop"><form className="simple-sheet map-form" onSubmit={submit}><div className="sheet-head"><div><p>{map ? '탭에 표시되는 이름입니다' : '공간별로 맵을 나눠보세요'}</p><h2>{map ? '주방맵 이름 수정' : '새 주방맵 추가'}</h2></div><button type="button" onClick={onClose}><X /></button></div><label><span>맵 이름</span><input autoFocus maxLength={30} value={name} onChange={(event) => setName(event.target.value)} placeholder="예: 베란다, 창고" /></label><button className="primary-button" disabled={busy || !name.trim()}>{busy ? <LoaderCircle className="spin" /> : <Check />} {map ? '이름 저장' : '맵 만들기'}</button></form></div>
+}
+
+function SpaceForm({ space, maps, initialMapId, kitchenId, demoMode, onClose, onDelete, onSave }: { space: StorageSpace | null; maps: KitchenMapPage[]; initialMapId: string; kitchenId: string; demoMode: boolean; onClose: () => void; onDelete: (space: StorageSpace) => Promise<void>; onSave: (values: Partial<StorageSpace>) => Promise<void> }) {
   const [name, setName] = useState(space?.name || '')
   const [alias, setAlias] = useState(space?.alias || '')
   const [type, setType] = useState(space?.space_type || 'cabinet')
   const [memo, setMemo] = useState(space?.memo || '')
+  const [mapId, setMapId] = useState(space?.map_id || initialMapId)
   const [busy, setBusy] = useState(false)
-  const submit = async (event: React.FormEvent) => { event.preventDefault(); if (!name.trim()) return; setBusy(true); try { await onSave({ kitchen_id: kitchenId, name: name.trim(), alias: alias.trim() || null, space_type: type, memo: memo.trim() || null, color: space?.color || '#9DB89A', icon: type }) } finally { setBusy(false) } }
-  return <div className="sheet-backdrop"><form className="space-form" onSubmit={submit}><div className="sheet-head"><div><p>{space ? '공간 정보를 바꿔보세요' : '새로운 보관공간'}</p><h2>{space ? '공간 수정' : '공간 추가'}</h2></div><button type="button" onClick={onClose}><X /></button></div><label><span>공간 이름 *</span><input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 간식 수납장" /></label><label><span>별칭</span><input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder="예: 아일랜드 아래칸" /></label><label><span>공간 유형</span><select value={type} onChange={(e) => setType(e.target.value)}><option value="fridge">냉장실</option><option value="freezer">냉동실</option><option value="kimchi_fridge">김치냉장고</option><option value="cabinet">수납장</option><option value="pantry">팬트리</option><option value="under_sink">싱크대 하부장</option><option value="counter">조리대</option><option value="custom">사용자 정의</option></select></label><label><span>메모</span><textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="무엇을 보관하는 공간인지 적어두세요." /></label><button className="primary-button" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : <Check />} {space ? '수정 적용' : '공간 추가'}</button>{space && <button type="button" className="delete-space" onClick={() => onDelete(space)} disabled={demoMode && false}>이 공간 삭제</button>}</form></div>
+  const submit = async (event: React.FormEvent) => { event.preventDefault(); if (!name.trim() || !mapId) return; setBusy(true); try { await onSave({ kitchen_id: kitchenId, map_id: mapId, name: name.trim(), alias: alias.trim() || null, space_type: type, memo: memo.trim() || null, color: space?.color || '#9DB89A', icon: type }) } finally { setBusy(false) } }
+  return <div className="sheet-backdrop"><form className="space-form" onSubmit={submit}><div className="sheet-head"><div><p>{space ? '공간 정보를 바꿔보세요' : '새로운 보관공간'}</p><h2>{space ? '공간 수정' : '공간 추가'}</h2></div><button type="button" onClick={onClose}><X /></button></div><label><span>공간 이름 *</span><input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 간식 수납장" /></label><label><span>표시할 주방맵</span><select value={mapId} onChange={(e) => setMapId(e.target.value)}>{maps.map((map) => <option value={map.id} key={map.id}>{map.name}</option>)}</select></label><label><span>별칭</span><input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder="예: 아일랜드 아래칸" /></label><label><span>공간 유형</span><select value={type} onChange={(e) => setType(e.target.value)}><option value="fridge">냉장실</option><option value="freezer">냉동실</option><option value="kimchi_fridge">김치냉장고</option><option value="cabinet">수납장</option><option value="pantry">팬트리</option><option value="under_sink">싱크대 하부장</option><option value="counter">조리대</option><option value="custom">사용자 정의</option></select></label><label><span>메모</span><textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="무엇을 보관하는 공간인지 적어두세요." /></label><button className="primary-button" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : <Check />} {space ? '수정 적용' : '공간 추가'}</button>{space && <button type="button" className="delete-space" onClick={() => onDelete(space)} disabled={demoMode && false}>이 공간 삭제</button>}</form></div>
 }
 
 function SearchScreen({ data, query, setQuery, profileId, demoMode, onSelectItem, onChanged }: { data: AppData; query: string; setQuery: (v: string) => void; profileId: string; demoMode: boolean; onSelectItem: (item: InventoryItem) => void; onChanged: () => Promise<void> }) {
@@ -624,6 +689,9 @@ function BottomNav({ tab, setTab, onAdd }: { tab: Tab; setTab: (tab: Tab) => voi
 }
 
 function SectionTitle({ title, action }: { title: string; action: string }) { return <div className="section-title"><h2>{title}</h2><span>{action}</span></div> }
+function MapPageTabs({ maps, activeMapId, onSelect, onAdd }: { maps: KitchenMapPage[]; activeMapId: string; onSelect: (mapId: string) => void; onAdd?: () => void }) {
+  return <div className="map-page-tabs" role="tablist" aria-label="주방맵 선택">{maps.map((map, index) => <button role="tab" aria-selected={map.id === activeMapId} className={map.id === activeMapId ? 'active' : ''} onClick={() => onSelect(map.id)} key={map.id}><span>{index + 1}</span>{map.name}</button>)}{onAdd && <button className="add" onClick={onAdd}><Plus /> 맵 추가</button>}</div>
+}
 function CategoryField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const isPreset = categoryOptions.includes(value)
   const [customMode, setCustomMode] = useState(Boolean(value && !isPreset))
@@ -661,7 +729,7 @@ function normalizeIngredient(value: string) {
 }
 function itemMatchesIngredient(item: InventoryItem, ingredientName: string) {
   const ingredient = normalizeIngredient(ingredientName)
-  return [item.product_name, item.alias].filter(Boolean).some((value) => {
+  return [item.product_name, item.category].filter(Boolean).some((value) => {
     const candidate = normalizeIngredient(value as string)
     return candidate.includes(ingredient) || ingredient.includes(candidate)
   })

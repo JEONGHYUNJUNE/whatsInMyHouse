@@ -74,6 +74,12 @@ supabase/migrations/20260810_006_expand_simple_recipes.sql
 supabase/migrations/20260811_007_add_korean_recipe_collection.sql
 ```
 
+여러 장의 주방맵을 사용하려면 다음 마이그레이션도 실행합니다.
+
+```text
+supabase/migrations/20260811_008_multiple_kitchen_maps.sql
+```
+
 SQL 실행 후 Supabase Dashboard에서 다음 Hook을 활성화합니다.
 
 ```text

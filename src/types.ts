@@ -12,9 +12,17 @@ export type Kitchen = {
   owner_profile_id: string
 }
 
+export type KitchenMap = {
+  id: string
+  kitchen_id: string
+  name: string
+  sort_order: number
+}
+
 export type StorageSpace = {
   id: string
   kitchen_id: string
+  map_id: string
   name: string
   alias: string | null
   space_type: string
