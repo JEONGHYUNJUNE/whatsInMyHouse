@@ -76,6 +76,13 @@ export async function createInventoryItem(input: Omit<InventoryItem, 'id' | 'cre
   return data
 }
 
+export async function updateInventoryItem(itemId: string, input: Partial<InventoryItem>) {
+  const { storage_spaces: _storageSpace, ...values } = input
+  const { data, error } = await supabase.from('inventory_items').update(values).eq('id', itemId).select().single()
+  if (error) throw error
+  return data
+}
+
 export async function moveInventoryItem(item: InventoryItem, nextSpaceId: string, profileId: string) {
   const { error } = await supabase.rpc('move_inventory_item', {
     target_item_id: item.id,
