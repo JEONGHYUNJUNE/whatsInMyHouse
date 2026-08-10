@@ -22,7 +22,7 @@ where p.auth_user_id = u.id
   and u.email like '%@whats-in-my-house.app';
 
 -- 신규 가입 시 Auth metadata에서 아이디와 별칭을 복사하고
--- 개인 주방 및 기본 보관공간을 생성합니다.
+-- 빈 개인 주방을 생성합니다. 보관공간은 온보딩에서 사용자가 직접 만듭니다.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -57,16 +57,6 @@ begin
 
   insert into public.kitchen_members (kitchen_id, profile_id, role)
   values (new_kitchen_id, new_profile_id, 'owner');
-
-  insert into public.storage_spaces (
-    kitchen_id, name, space_type, color, icon,
-    map_x, map_y, map_width, map_height, sort_order
-  ) values
-    (new_kitchen_id, '냉장실', 'fridge', '#BFD3CB', 'fridge', 0, 0, 1, 2, 1),
-    (new_kitchen_id, '냉동실', 'freezer', '#BFD3CB', 'snowflake', 0, 2, 1, 1, 2),
-    (new_kitchen_id, '수납장', 'cabinet', '#EAD3AE', 'cabinet', 1, 0, 2, 1, 3),
-    (new_kitchen_id, '싱크대 하부장', 'under_sink', '#9EB9AE', 'cabinet', 1, 1, 2, 1, 4),
-    (new_kitchen_id, '팬트리', 'pantry', '#D7B889', 'shelves', 3, 0, 1, 3, 5);
 
   return new;
 end;

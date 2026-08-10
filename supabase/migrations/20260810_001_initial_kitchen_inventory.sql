@@ -476,7 +476,7 @@ create table if not exists public.expiry_notification_deliveries (
 
 -- ----------------------------------------------------------------------------
 -- 9. 회원가입 자동 설정
--- Google/이메일 가입 직후 프로필, 개인 주방, 기본 보관공간을 자동 생성합니다.
+-- Google/이메일 가입 직후 프로필과 빈 개인 주방을 자동 생성합니다.
 -- ----------------------------------------------------------------------------
 create or replace function public.handle_new_user()
 returns trigger
@@ -512,16 +512,6 @@ begin
   insert into public.kitchen_members (kitchen_id, profile_id, role)
   values (new_kitchen_id, new_profile_id, 'owner');
 
-  insert into public.storage_spaces (
-    kitchen_id, name, space_type, color, icon,
-    map_x, map_y, map_width, map_height, sort_order
-  ) values
-    (new_kitchen_id, '냉장실', 'fridge', '#BFD3CB', 'fridge', 0, 0, 1, 2, 1),
-    (new_kitchen_id, '냉동실', 'freezer', '#BFD3CB', 'snowflake', 0, 2, 1, 1, 2),
-    (new_kitchen_id, '수납장', 'cabinet', '#EAD3AE', 'cabinet', 1, 0, 2, 1, 3),
-    (new_kitchen_id, '싱크대 하부장', 'under_sink', '#9EB9AE', 'cabinet', 1, 1, 2, 1, 4),
-    (new_kitchen_id, '팬트리', 'pantry', '#D7B889', 'shelves', 3, 0, 1, 3, 5);
-
   return new;
 end;
 $$;
@@ -553,7 +543,7 @@ begin
   end loop;
 end $$;
 
--- SQL 실행 전에 이미 가입한 사용자가 있다면 개인 주방과 기본 공간까지 보정합니다.
+-- SQL 실행 전에 이미 가입한 사용자가 있다면 빈 개인 주방을 보정합니다.
 do $$
 declare
   profile_row record;
@@ -573,15 +563,6 @@ begin
     insert into public.kitchen_members (kitchen_id, profile_id, role)
     values (backfill_kitchen_id, profile_row.id, 'owner');
 
-    insert into public.storage_spaces (
-      kitchen_id, name, space_type, color, icon,
-      map_x, map_y, map_width, map_height, sort_order
-    ) values
-      (backfill_kitchen_id, '냉장실', 'fridge', '#BFD3CB', 'fridge', 0, 0, 1, 2, 1),
-      (backfill_kitchen_id, '냉동실', 'freezer', '#BFD3CB', 'snowflake', 0, 2, 1, 1, 2),
-      (backfill_kitchen_id, '수납장', 'cabinet', '#EAD3AE', 'cabinet', 1, 0, 2, 1, 3),
-      (backfill_kitchen_id, '싱크대 하부장', 'under_sink', '#9EB9AE', 'cabinet', 1, 1, 2, 1, 4),
-      (backfill_kitchen_id, '팬트리', 'pantry', '#D7B889', 'shelves', 3, 0, 1, 3, 5);
   end loop;
 end $$;
 
@@ -731,4 +712,4 @@ using (
 -- join public.recipe_ingredients ri on ri.recipe_id = r.id
 -- order by r.title, ri.sort_order;
 
--- 완료: 이제 Google 로그인한 신규 사용자는 개인 주방과 기본 보관공간이 자동 생성됩니다.
+-- 완료: 이제 신규 사용자는 빈 개인 주방에서 첫 보관공간을 직접 생성합니다.

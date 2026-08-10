@@ -1,0 +1,42 @@
+.kitchen-setup,
+.data-error {
+  min-height: calc(100vh - 150px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.setup-icon {
+  width: 82px;
+  height: 82px;
+  border-radius: 25px;
+  background: #e2ebdf;
+  color: var(--green);
+  display: grid;
+  place-items: center;
+  margin-bottom: 20px;
+}
+
+.setup-icon svg { width: 38px; height: 38px; }
+.kitchen-setup h1 { font-size: 28px; line-height: 1.25; letter-spacing: -1.5px; margin: 4px 0 12px; }
+.kitchen-setup > p:not(.login-kicker) { font-size: 12px; line-height: 1.65; color: #71827a; margin: 0 0 22px; }
+.kitchen-setup form { width: 100%; max-width: 390px; text-align: left; display: grid; gap: 12px; }
+.kitchen-setup label { display: grid; gap: 6px; }
+.kitchen-setup label span { font-size: 10px; color: #71827a; font-weight: 700; }
+.kitchen-setup input,
+.kitchen-setup select { width: 100%; border: 1px solid var(--line); background: #fff; border-radius: 12px; padding: 13px; outline: 0; }
+.kitchen-setup .primary-button { margin-top: 4px; }
+.kitchen-setup > small { margin-top: 14px; color: #819087; font-size: 10px; }
+.data-error > svg { width: 48px; height: 48px; color: #8ca097; }
+.data-error h2 { margin: 15px 0 7px; }
+.data-error p { font-size: 12px; line-height: 1.6; color: #788981; }
+.data-error button { border: 0; border-radius: 11px; background: var(--green); color: #fff; padding: 11px 18px; font-weight: 700; }
+.empty-inventory-home { margin-top: 34px; padding: 38px 20px; border: 1px dashed #bdcbbf; border-radius: 22px; background: #f4f7ef; text-align: center; }
+.empty-inventory-home > div { width: 62px; height: 62px; margin: 0 auto 14px; display: grid; place-items: center; border-radius: 19px; background: #dfe9dc; color: var(--green); }
+.empty-inventory-home > div svg { width: 29px; height: 29px; }
+.empty-inventory-home h2 { margin: 0 0 8px; font-size: 19px; }
+.empty-inventory-home p { margin: 0; color: #76877f; font-size: 11px; line-height: 1.65; }
+.empty-inventory-home button { margin-top: 19px; border: 0; border-radius: 12px; padding: 12px 17px; display: inline-flex; align-items: center; gap: 7px; background: var(--green); color: #fff; font-size: 12px; font-weight: 800; }
+.empty-inventory-home button svg { width: 17px; height: 17px; }

@@ -57,6 +57,12 @@ supabase/migrations/20260810_002_username_auth.sql
 supabase/migrations/20260810_003_username_email_hook.sql
 ```
 
+신규 사용자가 첫 보관공간을 직접 만드는 빈 주방 온보딩은 다음 SQL을 실행합니다. 이전 트리거가 만든 기본 공간은 식재료가 전혀 없고 자동 생성 형태가 정확히 일치할 때만 정리됩니다.
+
+```text
+supabase/migrations/20260810_004_empty_kitchen_onboarding.sql
+```
+
 SQL 실행 후 Supabase Dashboard에서 다음 Hook을 활성화합니다.
 
 ```text

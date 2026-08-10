@@ -13,6 +13,7 @@ import {
 } from './services/kitchenService'
 import { getInventoryImageUrl, uploadInventoryImage } from './services/imageService'
 import type { InventoryItem, Recipe, StorageSpace } from './types'
+import './onboarding.css'
 
 type Tab = 'home' | 'map' | 'search' | 'recipes' | 'profile'
 
@@ -24,8 +25,8 @@ const spaceIcons: Record<string, React.ReactNode> = {
 function App() {
   const { session, profile, loading, signInWithCredentials, signUpWithCredentials, signOut } = useAuth()
   const [demoMode, setDemoMode] = useState(false)
-  const [data, setData] = useState<AppData>(demoData)
-  const [dataLoading, setDataLoading] = useState(false)
+  const [data, setData] = useState<AppData | null>(null)
+  const [dataLoading, setDataLoading] = useState(true)
   const [setupError, setSetupError] = useState('')
   const [tab, setTab] = useState<Tab>('home')
   const [addOpen, setAddOpen] = useState(false)
@@ -39,14 +40,22 @@ function App() {
       setSetupError('')
     } catch (error) {
       console.error(error)
-      setSetupError('Supabase SQL을 먼저 실행해 주세요. 지금은 미리보기 데이터로 보여드려요.')
-      setData(demoData)
+      setSetupError('주방 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')
+      setData(null)
     } finally {
       setDataLoading(false)
     }
   }
 
-  useEffect(() => { refresh() }, [profile, demoMode]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (demoMode) {
+      setData(demoData)
+      setDataLoading(false)
+      setSetupError('')
+      return
+    }
+    if (profile) void refresh()
+  }, [profile, demoMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return <FullLoader />
   if (!session && !demoMode) return <LoginPage onSignIn={signInWithCredentials} onSignUp={signUpWithCredentials} onDemo={() => setDemoMode(true)} />
@@ -59,9 +68,13 @@ function App() {
       </header>
 
       {setupError && <div className="setup-banner">{setupError}</div>}
-      {dataLoading ? <FullLoader compact /> : (
+      {dataLoading ? <FullLoader compact /> : !data ? (
+        <main className="screen"><DataLoadError onRetry={refresh} /></main>
+      ) : !demoMode && data.spaces.length === 0 ? (
+        <main className="screen"><KitchenSetup kitchenId={data.kitchen.id} onCreated={refresh} /></main>
+      ) : (
         <main className="screen">
-          {tab === 'home' && <HomeScreen data={data} query={query} setQuery={setQuery} goSearch={() => setTab('search')} />}
+          {tab === 'home' && <HomeScreen data={data} query={query} setQuery={setQuery} goSearch={() => setTab('search')} onAdd={() => setAddOpen(true)} />}
           {tab === 'map' && <KitchenMap data={data} demoMode={demoMode} onChanged={refresh} />}
           {tab === 'search' && <SearchScreen data={data} query={query} setQuery={setQuery} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onChanged={refresh} />}
           {tab === 'recipes' && <RecipeScreen data={data} />}
@@ -69,10 +82,61 @@ function App() {
         </main>
       )}
 
-      <BottomNav tab={tab} setTab={setTab} onAdd={() => setAddOpen(true)} />
-      {addOpen && <AddItemSheet data={data} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onClose={() => setAddOpen(false)} onSaved={async () => { setAddOpen(false); await refresh() }} />}
+      {data && (demoMode || data.spaces.length > 0) && <BottomNav tab={tab} setTab={setTab} onAdd={() => setAddOpen(true)} />}
+      {addOpen && data && data.spaces.length > 0 && <AddItemSheet data={data} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onClose={() => setAddOpen(false)} onSaved={async () => { setAddOpen(false); await refresh() }} />}
     </div>
   )
+}
+
+function KitchenSetup({ kitchenId, onCreated }: { kitchenId: string; onCreated: () => Promise<void> }) {
+  const [name, setName] = useState('')
+  const [type, setType] = useState('fridge')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!name.trim()) return setError('공간 이름을 입력해 주세요.')
+    setBusy(true)
+    setError('')
+    try {
+      await createStorageSpace({
+        kitchen_id: kitchenId,
+        name: name.trim(),
+        space_type: type,
+        color: type === 'fridge' || type === 'freezer' ? '#BFD3CB' : '#EAD3AE',
+        icon: type,
+        map_x: 0,
+        map_y: 0,
+        map_width: 1,
+        map_height: 1,
+        sort_order: 1,
+      })
+      await onCreated()
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '공간을 만들지 못했습니다.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <section className="kitchen-setup">
+    <div className="setup-icon"><Map /></div>
+    <p className="login-kicker">첫 번째 단계</p>
+    <h1>식재료를 보관할<br />공간부터 만들어 볼까요?</h1>
+    <p>실제 집에 있는 냉장고, 냉동실, 수납장처럼<br />식재료를 넣어둘 공간을 하나 등록해 주세요.</p>
+    <form onSubmit={submit}>
+      <label><span>공간 이름</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="예: 거실 냉장고" /></label>
+      <label><span>공간 유형</span><select value={type} onChange={(event) => setType(event.target.value)}><option value="fridge">냉장실</option><option value="freezer">냉동실</option><option value="kimchi_fridge">김치냉장고</option><option value="cabinet">수납장</option><option value="pantry">팬트리</option><option value="under_sink">싱크대 하부장</option><option value="counter">조리대</option><option value="custom">사용자 정의</option></select></label>
+      {error && <p className="auth-error">{error}</p>}
+      <button className="primary-button" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : <Plus />} 첫 공간 만들기</button>
+    </form>
+    <small>공간을 만든 다음 식재료를 등록할 수 있어요.</small>
+  </section>
+}
+
+function DataLoadError({ onRetry }: { onRetry: () => Promise<void> }) {
+  return <section className="data-error"><Box /><h2>주방을 불러오지 못했어요</h2><p>데모 데이터는 표시하지 않았습니다.<br />연결 상태를 확인하고 다시 시도해 주세요.</p><button onClick={() => void onRetry()}>다시 시도</button></section>
 }
 
 function LoginPage({ onSignIn, onSignUp, onDemo }: { onSignIn: (username: string, password: string) => Promise<void>; onSignUp: (username: string, password: string, nickname: string) => Promise<void>; onDemo: () => void }) {
@@ -108,9 +172,15 @@ function LoginPage({ onSignIn, onSignUp, onDemo }: { onSignIn: (username: string
   </main>
 }
 
-function HomeScreen({ data, query, setQuery, goSearch }: { data: AppData; query: string; setQuery: (v: string) => void; goSearch: () => void }) {
+function HomeScreen({ data, query, setQuery, goSearch, onAdd }: { data: AppData; query: string; setQuery: (v: string) => void; goSearch: () => void; onAdd: () => void }) {
   const urgent = [...data.items].sort((a, b) => getDaysLeft(a) - getDaysLeft(b)).filter((item) => getDaysLeft(item) <= 3)
   const match = getRecipeMatch(data.recipes[0], data.items)
+  if (data.items.length === 0) return <>
+    <section className="welcome"><div><p>주방 공간이 준비됐어요 👋</p><h1>{data.kitchen.name}</h1></div><span className="item-total">식재료 <b>0</b>개</span></section>
+    <section className="empty-inventory-home"><div><PackageCheck /></div><h2>아직 등록한 식재료가 없어요</h2><p>첫 상품을 등록하면 소비기한, 보관 위치와<br />추천 레시피를 여기서 확인할 수 있어요.</p><button onClick={onAdd}><Plus /> 첫 식재료 등록하기</button></section>
+    <SectionTitle title="만든 보관공간" action={`${data.spaces.length}개`} />
+    <div className="space-summary">{data.spaces.slice(0, 4).map((space) => <div key={space.id}><span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>0개</small></div>)}</div>
+  </>
   return <>
     <section className="welcome"><div><p>오늘도 알뜰하게 👋</p><h1>{data.kitchen.name}</h1></div><span className="item-total">식재료 <b>{data.items.length}</b>개</span></section>
     <label className="global-search" onClick={goSearch}><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="식재료, 메모, 보관 위치 검색" /><Settings2 /></label>
