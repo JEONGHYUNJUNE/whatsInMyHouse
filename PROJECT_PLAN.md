@@ -62,3 +62,7 @@
 ## Google 로그인 재개 지점
 
 현재는 아이디·비밀번호 로그인을 우선 사용합니다. Google OAuth 프론트 코드는 보존하며, Vercel 배포 주소가 확정되면 Supabase Site URL/Redirect URLs와 Google Cloud의 Authorized JavaScript origins에 운영 주소를 추가하는 단계부터 재개합니다. Google의 승인된 리디렉션 URI는 Supabase callback URL을 그대로 유지합니다.
+
+## 아이디 로그인 운영 설정
+
+Supabase Auth에는 일반 아이디 인증이 없어 내부적으로 `아이디@whats-in-my-house.app` 형식의 가상 이메일을 사용합니다. 실제 메일 발송과 반송을 막기 위해 `ignore_username_auth_email` Postgres 함수를 Send Email Auth Hook으로 활성화하고 Email Provider의 `Confirm email`을 끕니다. 초기 버전에서는 이메일 기반 비밀번호 찾기를 제공하지 않습니다.

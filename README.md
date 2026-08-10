@@ -51,6 +51,23 @@ Authentication > Providers > Email
 supabase/migrations/20260810_002_username_auth.sql
 ```
 
+가상 이메일로 실제 메일 발송을 시도하지 않도록 다음 SQL도 실행합니다.
+
+```text
+supabase/migrations/20260810_003_username_email_hook.sql
+```
+
+SQL 실행 후 Supabase Dashboard에서 다음 Hook을 활성화합니다.
+
+```text
+Authentication > Hooks > Send Email > Add hook
+Hook type: Postgres Function
+Schema: public
+Function: ignore_username_auth_email
+```
+
+`Authentication > Providers > Email`에서는 Email Provider를 켜고 `Confirm email`을 꺼둡니다. Send Email Hook은 Supabase 기본 메일 전송을 대체하며, 이 앱에서는 내부 가상 이메일을 외부로 발송하지 않고 성공 응답만 반환합니다. 비밀번호 재설정 메일도 발송되지 않으므로 초기 버전에서는 관리자가 계정을 복구해야 합니다.
+
 ## 4. Google 로그인 설정 (상용화 단계)
 
 1. Google Cloud에서 Web OAuth Client를 생성합니다.

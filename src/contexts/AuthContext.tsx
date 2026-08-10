@@ -85,7 +85,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       options: { data: { username: normalized, nickname: cleanNickname, name: cleanNickname } },
     })
     if (error) {
-      if (error.message.toLowerCase().includes('already registered')) throw new Error('이미 사용 중인 아이디입니다.')
+      const message = error.message.toLowerCase()
+      if (message.includes('already registered')) throw new Error('이미 사용 중인 아이디입니다.')
+      if (message.includes('email address') && message.includes('invalid')) {
+        throw new Error('아이디 가입 설정이 완료되지 않았습니다. 관리자에게 Supabase 이메일 Hook 설정을 요청해 주세요.')
+      }
       throw error
     }
     if (!data.session) {
