@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { IScannerControls } from '@zxing/browser'
 import {
   Apple, Bell, BookOpen, Box, Camera, Check, ChevronRight, CircleUserRound,
   Clock3, DoorOpen, Home, LayoutGrid, List, LoaderCircle, LogOut, Map, PackageCheck, PenLine,
@@ -380,10 +381,11 @@ function AddItemSheet({ data, profileId, demoMode, onClose, onSaved }: { data: A
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState('')
 
-  const findBarcode = async () => {
-    if (!barcode) return
+  const findBarcode = async (nextBarcode = barcode) => {
+    if (!nextBarcode) return
+    setBarcode(nextBarcode)
     setBusy(true)
-    try { const found = await lookupBarcode(barcode); if (found) { setName(found.name); setPreview(found.imageUrl) } else alert('상품을 찾지 못했어요. 상품명을 직접 입력해 주세요.') } finally { setBusy(false) }
+    try { const found = await lookupBarcode(nextBarcode); if (found) { setName(found.name); setPreview(found.imageUrl) } else alert('바코드는 인식했지만 상품 정보를 찾지 못했어요. 상품명을 직접 입력해 주세요.') } finally { setBusy(false) }
   }
   const save = async () => {
     if (!name.trim() || !spaceId) return alert('상품명과 보관 위치는 필수입니다.')
@@ -397,11 +399,65 @@ function AddItemSheet({ data, profileId, demoMode, onClose, onSaved }: { data: A
   }
   return <div className="sheet-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><section className="add-sheet"><div className="sheet-handle" /><div className="sheet-head"><div><p>10초 안에 빠르게</p><h2>식재료 추가</h2></div><button onClick={onClose}><X /></button></div>
     <div className="mode-tabs"><button className={mode === 'barcode' ? 'active' : ''} onClick={() => setMode('barcode')}><ScanLine /> 바코드</button><button className={mode === 'manual' ? 'active' : ''} onClick={() => setMode('manual')}><PenLine /> 직접 입력</button></div>
-    {mode === 'barcode' && <div className="barcode-box"><ScanLine /><div><b>바코드 번호를 입력해 보세요</b><span>카메라 연속 스캔은 다음 단계에서 연결돼요.</span></div><div><input inputMode="numeric" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="880..." /><button onClick={findBarcode}>조회</button></div></div>}
+    {mode === 'barcode' && <><BarcodeCameraScanner onDetected={findBarcode} /><details className="barcode-manual"><summary>번호를 직접 입력할게요</summary><div><input inputMode="numeric" value={barcode} onChange={(e) => setBarcode(e.target.value.replace(/\D/g, ''))} placeholder="880..." /><button onClick={() => void findBarcode()}>조회</button></div></details></>}
     <label className="photo-field">{preview ? <img src={preview} /> : <Camera />}<span>{file ? file.name : '상품 사진 촬영 또는 선택'}</span><input type="file" accept="image/*" capture="environment" onChange={(e) => { const selected = e.target.files?.[0] || null; setFile(selected); if (selected) setPreview(URL.createObjectURL(selected)) }} /></label>
     <div className="form-grid"><label className="full"><span>상품명 *</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 사과" /></label><label><span>별칭</span><input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder="아침용" /></label><label><span>카테고리</span><input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="과일" /></label><label><span>수량</span><input type="number" min="0" step="0.1" value={quantity} onChange={(e) => setQuantity(e.target.value)} /></label><label><span>단위</span><select value={unit} onChange={(e) => setUnit(e.target.value)}><option>개</option><option>팩</option><option>병</option><option>봉</option><option>g</option><option>kg</option><option>모</option></select></label><label className="full"><span>보관 위치 *</span><select value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>{data.spaces.map((space) => <option key={space.id} value={space.id}>{space.name}{space.alias ? ` · ${space.alias}` : ''}</option>)}</select></label><label><span>유통기한</span><input type="date" value={expiration} onChange={(e) => setExpiration(e.target.value)} /></label><label><span>소비기한</span><input type="date" value={useBy} onChange={(e) => setUseBy(e.target.value)} /></label><label className="full"><span>메모</span><textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="보관법이나 구입처를 적어두세요." /></label></div>
     <button className="primary-button" disabled={busy} onClick={save}>{busy ? <LoaderCircle className="spin" /> : <PackageCheck />} 저장하기</button>
   </section></div>
+}
+
+function BarcodeCameraScanner({ onDetected }: { onDetected: (barcode: string) => Promise<void> }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const controlsRef = useRef<IScannerControls | null>(null)
+  const detectedRef = useRef(false)
+  const [scanning, setScanning] = useState(false)
+  const [message, setMessage] = useState('카메라로 상품 바코드를 비춰 주세요.')
+
+  const stop = () => {
+    controlsRef.current?.stop()
+    controlsRef.current = null
+    setScanning(false)
+  }
+
+  useEffect(() => () => controlsRef.current?.stop(), [])
+
+  const start = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) return setMessage('이 브라우저에서는 카메라를 사용할 수 없어요. 아래에서 번호를 입력해 주세요.')
+    stop()
+    detectedRef.current = false
+    setScanning(true)
+    setMessage('바코드가 사각형 안에 크게 보이도록 비춰 주세요.')
+    try {
+      const { BrowserMultiFormatReader } = await import('@zxing/browser')
+      const reader = new BrowserMultiFormatReader()
+      controlsRef.current = await reader.decodeFromConstraints(
+        { audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+        videoRef.current || undefined,
+        (result) => {
+          if (!result || detectedRef.current) return
+          const code = result.getText().trim()
+          if (!/^\d{8,14}$/.test(code)) return
+          detectedRef.current = true
+          controlsRef.current?.stop()
+          controlsRef.current = null
+          setScanning(false)
+          setMessage(`${code} 인식 완료 · 상품 정보를 찾고 있어요.`)
+          if (navigator.vibrate) navigator.vibrate(80)
+          void onDetected(code)
+        },
+      )
+    } catch (error) {
+      console.warn('바코드 카메라 시작 실패:', error)
+      setScanning(false)
+      setMessage('카메라 권한을 허용하지 못했어요. 권한을 확인하거나 번호를 직접 입력해 주세요.')
+    }
+  }
+
+  return <section className={`barcode-camera ${scanning ? 'scanning' : ''}`}>
+    <div className="camera-preview"><video ref={videoRef} muted playsInline /><div className="scan-frame"><span /></div></div>
+    <p>{message}</p>
+    {scanning ? <button type="button" onClick={stop}><X /> 스캔 취소</button> : <button type="button" onClick={() => void start()}><Camera /> 카메라로 자동 스캔</button>}
+  </section>
 }
 
 function RecipeDetail({ recipe, items, saved, onToggleSave, onClose }: { recipe: Recipe; items: InventoryItem[]; saved: boolean; onToggleSave: () => void; onClose: () => void }) {

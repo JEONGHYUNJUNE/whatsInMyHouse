@@ -90,3 +90,22 @@
 .notification-list p { margin: 3px 0; color: #6f8178; font-size: 10px; line-height: 1.45; }
 .notification-list small { color: #95a098; font-size: 8px; }
 .section-title > span { color: #7c8b84; font-size: 11px; }
+.barcode-camera { margin-bottom: 12px; padding: 12px; border: 1px solid #ccd8ce; border-radius: 17px; background: #edf3e9; }
+.camera-preview { position: relative; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 13px; background: #1c2722; }
+.camera-preview video { width: 100%; height: 100%; display: block; object-fit: cover; }
+.scan-frame { position: absolute; inset: 50% auto auto 50%; width: 82%; height: 40%; transform: translate(-50%,-50%); border: 2px solid rgba(255,255,255,.85); border-radius: 13px; box-shadow: 0 0 0 999px rgba(10,20,15,.28); }
+.scan-frame::before,.scan-frame::after,.scan-frame span::before,.scan-frame span::after { content: ''; position: absolute; width: 22px; height: 22px; border-color: #d6ef9a; border-style: solid; }
+.scan-frame::before { left: -2px; top: -2px; border-width: 3px 0 0 3px; border-radius: 10px 0 0; }
+.scan-frame::after { right: -2px; top: -2px; border-width: 3px 3px 0 0; border-radius: 0 10px 0 0; }
+.scan-frame span::before { left: -2px; bottom: -2px; border-width: 0 0 3px 3px; border-radius: 0 0 0 10px; }
+.scan-frame span::after { right: -2px; bottom: -2px; border-width: 0 3px 3px 0; border-radius: 0 0 10px; }
+.barcode-camera.scanning .scan-frame span { position: absolute; left: 5%; right: 5%; top: 50%; height: 2px; background: #d6ef9a; box-shadow: 0 0 9px #d6ef9a; animation: scan-line 1.6s ease-in-out infinite; }
+.barcode-camera p { margin: 9px 2px; color: #65786e; font-size: 10px; text-align: center; }
+.barcode-camera > button { width: 100%; min-height: 42px; border: 0; border-radius: 11px; background: var(--green); color: #fff; display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 11px; font-weight: 800; }
+.barcode-camera > button svg { width: 17px; }
+.barcode-manual { margin-bottom: 12px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.barcode-manual summary { padding: 11px 13px; cursor: pointer; color: #6f8178; font-size: 10px; }
+.barcode-manual > div { display: flex; gap: 7px; padding: 0 10px 10px; }
+.barcode-manual input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 9px; padding: 10px; }
+.barcode-manual button { border: 0; border-radius: 9px; background: var(--green); color: #fff; padding: 0 15px; font-size: 10px; }
+@keyframes scan-line { 0%,100% { transform: translateY(-42px); } 50% { transform: translateY(42px); } }
