@@ -183,7 +183,7 @@ function LoginPage({ onSignIn, onSignUp, onDemo }: { onSignIn: (username: string
 function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem }: { data: AppData; query: string; setQuery: (v: string) => void; goSearch: () => void; onAdd: (spaceId?: string) => void; onSelectItem: (item: InventoryItem) => void }) {
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null)
   const [spaceView, setSpaceView] = useState<'list' | 'map'>('list')
-  const urgent = [...data.items].sort((a, b) => getDaysLeft(a) - getDaysLeft(b)).filter((item) => getDaysLeft(item) <= 3)
+  const urgent = [...data.items].sort((a, b) => getDaysLeft(a) - getDaysLeft(b)).filter((item) => getDaysLeft(item) <= 7)
   const match = getRecipeMatch(data.recipes[0], data.items)
   const selectedSpace = data.spaces.find((space) => space.id === selectedSpaceId) || null
   const selectedItems = selectedSpace ? data.items.filter((item) => item.storage_space_id === selectedSpace.id) : []
@@ -202,7 +202,7 @@ function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem }: { 
   return <>
     <section className="welcome"><div><p>오늘도 알뜰하게 👋</p><h1>{data.kitchen.name}</h1></div><span className="item-total">식재료 <b>{data.items.length}</b>개</span></section>
     <label className="global-search" onClick={goSearch}><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="식재료, 메모, 보관 위치 검색" /><Settings2 /></label>
-    <SectionTitle title="오늘까지 먹어요" action={`${urgent.length}개 확인`} />
+    <SectionTitle title="먼저 먹어요" action={`7일 안에 ${urgent.length}개`} />
     <div className="expiry-scroll">{urgent.length ? urgent.map((item) => <ItemMiniCard item={item} onClick={() => onSelectItem(item)} key={item.id} />) : <EmptyMini />}</div>
     <SectionTitle title="우리 집 보관공간" action={`${data.spaces.length}개`} />
     {spaces}
@@ -593,10 +593,10 @@ function BottomNav({ tab, setTab, onAdd }: { tab: Tab; setTab: (tab: Tab) => voi
 }
 
 function SectionTitle({ title, action }: { title: string; action: string }) { return <div className="section-title"><h2>{title}</h2><span>{action}</span></div> }
-function ItemMiniCard({ item, onClick }: { item: InventoryItem; onClick: () => void }) { const days = getDaysLeft(item); return <button className="item-mini" onClick={onClick}><ItemThumb item={item} /><b>{item.product_name}</b><span>{item.storage_spaces?.name}</span><em className={days <= 0 ? 'danger' : ''}>{days <= 0 ? '오늘' : `${days}일`}</em></button> }
+function ItemMiniCard({ item, onClick }: { item: InventoryItem; onClick: () => void }) { const days = getDaysLeft(item); return <button className="item-mini" onClick={onClick}><ItemThumb item={item} /><b>{item.product_name}</b><span>{item.storage_spaces?.name}</span><em className={days <= 0 ? 'danger' : ''}>{days < 0 ? `${Math.abs(days)}일 지남` : days === 0 ? '오늘' : `${days}일`}</em></button> }
 function ItemThumb({ item }: { item: InventoryItem }) { const url = getInventoryImageUrl(item.image_path); return <div className="item-thumb">{url ? <img src={url} /> : <Apple />}</div> }
 function ItemRow({ item, onClick }: { item: InventoryItem; onClick: () => void }) { return <button className="drawer-item" onClick={onClick}><ItemThumb item={item} /><div><b>{item.product_name}</b><span>{item.quantity}{item.unit} · {dateLabel(item)}</span></div><ChevronRight /></button> }
-function EmptyMini() { return <div className="empty-mini"><Check /> 오늘 바로 먹어야 할 식재료가 없어요.</div> }
+function EmptyMini() { return <div className="empty-mini"><Check /> 일주일 안에 서둘러 먹을 식재료가 없어요.</div> }
 function FullLoader({ compact = false }: { compact?: boolean }) { return <div className={`full-loader ${compact ? 'compact' : ''}`}><LoaderCircle className="spin" /><span>주방을 정리하고 있어요</span></div> }
 function dateLabel(item: InventoryItem) { const days = getDaysLeft(item); if (!Number.isFinite(days)) return '기한 미설정'; if (days < 0) return `${Math.abs(days)}일 지남`; if (days === 0) return '오늘까지'; return `${days}일 남음` }
 function normalize(value: string) { return value.replace(/\s/g, '').toLowerCase() }
