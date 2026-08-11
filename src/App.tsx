@@ -3,7 +3,7 @@ import type { IScannerControls } from '@zxing/browser'
 import {
   Apple, ArrowLeft, Beef, Bell, BookOpen, Box, Camera, Carrot, Check, ChevronRight, CircleUserRound, Cookie, CookingPot, CupSoda,
   Clock3, DoorOpen, Egg, Fish, Home, LayoutGrid, List, LoaderCircle, LogOut, Map, Milk, Package, PackageCheck, PenLine,
-  PanelsTopLeft, Plus, Refrigerator, ScanLine, Search, Settings2, Share2, ShieldCheck, Snowflake, Sparkles, Trash2, UtensilsCrossed, Wheat, X,
+  Plus, Refrigerator, ScanLine, Search, Settings2, Share2, ShieldCheck, Snowflake, Sparkles, Trash2, UtensilsCrossed, Wheat, X,
 } from 'lucide-react'
 import { useAuth } from './contexts/AuthContext'
 import { showAppAlert, showAppConfirm } from './contexts/AppDialogContext'
@@ -20,9 +20,17 @@ import './onboarding.css'
 
 type Tab = 'home' | 'map' | 'search' | 'consume' | 'recipes' | 'profile'
 
+function CabinetIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3.5" y="3" width="17" height="18" rx="2.2" />
+    <path d="M3.5 11.5h17" />
+    <path d="M10.5 7.2h3M10.5 15.7h3" />
+  </svg>
+}
+
 const spaceIcons: Record<string, React.ReactNode> = {
   fridge: <Refrigerator />, freezer: <Snowflake />, pantry: <LayoutGrid />,
-  cabinet: <PanelsTopLeft />, under_sink: <DoorOpen />,
+  cabinet: <CabinetIcon />, under_sink: <DoorOpen />,
 }
 
 const categoryOptions = ['채소', '과일', '육류', '수산물', '달걀', '유제품', '곡류/면', '음료', '조미료/소스', '간식', '냉동식품', '기타']
@@ -638,7 +646,7 @@ function RecipeScreen({ data, profileId, demoMode, onChanged }: { data: AppData;
     <label className="global-search recipe-search"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="레시피 이름이나 재료로 검색" />{query && <button onClick={() => setQuery('')}><X /></button>}</label>
     <SectionTitle title={view === 'book' ? '저장한 레시피' : '추천 레시피'} action={`${searchedRecipes.length}개`} />
     <div className="recipe-list">{visibleRecipes.length ? visibleRecipes.map((recipe) => { const match = getRecipeMatch(recipe, data.items); const personal = recipe.created_by === profileId; return <div className="recipe-list-row" key={recipe.id}><button onClick={() => setSelected(recipe)}><span>{personal ? '📝' : '🍳'}</span><div><h3>{recipe.title}</h3><p>{recipe.summary}</p><small><Clock3 /> {recipe.cook_minutes || '-'}분 · 재료 {match.have}/{match.total}</small></div><ChevronRight /></button>{view === 'book' ? <button aria-label={`${recipe.title} 수정`} onClick={() => setEditing(recipe)}><PenLine /></button> : <button className={data.savedRecipeIds.includes(recipe.id) ? 'saved' : ''} aria-label={`${recipe.title} 저장`} onClick={() => void toggleSave(recipe)}><BookOpen /></button>}</div> }) : <div className="no-results"><BookOpen /><p>{view === 'book' ? '레시피를 추가하거나 추천에서 저장해 보세요.' : '검색 결과가 없어요.'}</p></div>}</div>
-    {selected && <RecipeDetail recipe={selected} items={data.items} saved={data.savedRecipeIds.includes(selected.id)} onToggleSave={selected.created_by === profileId ? undefined : () => void toggleSave(selected)} onShare={selected.created_by === profileId ? () => void share(selected) : undefined} onEdit={view === 'book' ? () => { setEditing(selected); setSelected(null) } : undefined} onDelete={selected.created_by === profileId ? () => void remove(selected) : undefined} onClose={() => setSelected(null)} />}
+    {selected && <RecipeDetail recipe={selected} items={data.items} saved={data.savedRecipeIds.includes(selected.id)} onToggleSave={selected.created_by === profileId ? undefined : () => void toggleSave(selected)} onShare={() => void share(selected)} onEdit={view === 'book' ? () => { setEditing(selected); setSelected(null) } : undefined} onDelete={selected.created_by === profileId ? () => void remove(selected) : undefined} onClose={() => setSelected(null)} />}
     {editing && <RecipeEditor recipe={editing === 'new' ? null : editing} profileId={profileId} savedRecipeIds={data.savedRecipeIds} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await onChanged() }} />}
   </>
 }
@@ -842,7 +850,7 @@ function SharedRecipeSheet({ shareId, items, onClose, onSaved }: { shareId: stri
     } catch (nextError) { void showAppAlert(nextError instanceof Error ? nextError.message : '레시피를 저장하지 못했습니다.', '저장하지 못했어요', 'danger') }
     finally { setSaving(false) }
   }
-  return <RecipeDetail recipe={recipe} items={items} saved={saved} authorName={shared.author_name} onToggleSave={shared.is_own ? undefined : () => void save()} onClose={onClose} />
+  return <RecipeDetail recipe={recipe} items={items} saved={saved} authorName={shared.author_name} onToggleSave={() => void save()} onClose={onClose} />
 }
 
 function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, onSignOut, onGoMap, onGoRecipes, onOpenNotifications, onChanged }: { profile: Profile | null; kitchenName: string; kitchenId: string; demoMode: boolean; onExitDemo: () => void; onSignOut: () => Promise<void>; onGoMap: () => void; onGoRecipes: () => void; onOpenNotifications: () => void; onChanged: () => Promise<void> }) {
