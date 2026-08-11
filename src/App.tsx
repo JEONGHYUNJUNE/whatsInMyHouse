@@ -11,7 +11,7 @@ import { demoData } from './demoData'
 import { isSupabaseConfigured } from './lib/supabase'
 import {
   approveBarcodeProduct, consumeInventoryItems, createInventoryItem, createKitchenMap, createRecipeShare, createStorageSpace, deleteKitchenMap, deletePersonalRecipe, deleteSharedBarcodeProduct, deleteStorageSpace, finishInventoryItem, getDaysLeft, loadAppData, loadBarcodeProductSubmissions, loadSharedBarcodeProducts, loadSharedRecipe, lookupBarcode,
-  markNotificationsRead, moveInventoryItem, rejectBarcodeProduct, searchPersonalProducts, submitBarcodeProduct, toggleSavedRecipe, updateKitchenName, updateProfileNickname, updateStorageSpace,
+  markNotificationRead, markNotificationsRead, moveInventoryItem, rejectBarcodeProduct, searchPersonalProducts, submitBarcodeProduct, toggleSavedRecipe, updateKitchenName, updateProfileNickname, updateStorageSpace,
   savePersonalRecipe, saveSharedRecipe, updateInventoryItem, updateKitchenMap, updateSharedBarcodeProduct, updateStorageSpaces, type AppData,
 } from './services/kitchenService'
 import { getInventoryImageUrl, uploadInventoryImage } from './services/imageService'
@@ -1049,11 +1049,18 @@ function BarcodeAdminSheet({ onClose }: { onClose: () => void }) {
 }
 
 function NotificationsSheet({ notifications, profileId, demoMode, onClose, onRead }: { notifications: AppNotification[]; profileId: string; demoMode: boolean; onClose: () => void; onRead: () => Promise<void> }) {
+  const [readingId, setReadingId] = useState<string | null>(null)
   const readAll = async () => {
     if (demoMode || !profileId) return
     await markNotificationsRead(profileId); await onRead()
   }
-  return <div className="sheet-backdrop"><section className="simple-sheet notifications-sheet"><div className="sheet-head"><div><p>최근 30개</p><h2>알림</h2></div><button onClick={onClose}><X /></button></div>{notifications.some((item) => !item.is_read) && <button className="read-all" onClick={() => void readAll()}><Check /> 모두 읽음</button>}<div className="notification-list">{notifications.length ? notifications.map((notification) => <article className={notification.is_read ? '' : 'unread'} key={notification.id}><Bell /><div><b>{notification.title}</b><p>{notification.message}</p><small>{new Date(notification.created_at).toLocaleString('ko-KR')}</small></div></article>) : <div className="no-results"><Bell /><p>도착한 알림이 없어요.</p></div>}</div></section></div>
+  const readOne = async (notificationId: string) => {
+    if (demoMode || !profileId || readingId) return
+    setReadingId(notificationId)
+    try { await markNotificationRead(notificationId); await onRead() }
+    finally { setReadingId(null) }
+  }
+  return <div className="sheet-backdrop"><section className="simple-sheet notifications-sheet"><div className="sheet-head"><div><p>읽지 않은 알림</p><h2>알림</h2></div><button onClick={onClose}><X /></button></div>{notifications.length > 0 && <button className="read-all" onClick={() => void readAll()}><Check /> 모두 확인</button>}<div className="notification-list">{notifications.length ? notifications.map((notification) => <button className="notification-item unread" disabled={readingId !== null} onClick={() => void readOne(notification.id)} key={notification.id}>{readingId === notification.id ? <LoaderCircle className="spin" /> : <Bell />}<div><b>{notification.title}</b><p>{notification.message}</p><small>{new Date(notification.created_at).toLocaleString('ko-KR')} · 눌러서 확인</small></div></button>) : <div className="no-results"><Bell /><p>확인할 새 알림이 없어요.</p></div>}</div></section></div>
 }
 
 function BottomNav({ tab, setTab, onAdd }: { tab: Tab; setTab: (tab: Tab) => void; onAdd: () => void }) {
