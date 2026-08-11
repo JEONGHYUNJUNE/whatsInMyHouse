@@ -3,19 +3,19 @@ import type { IScannerControls } from '@zxing/browser'
 import {
   Apple, ArrowLeft, Beef, Bell, BookOpen, Box, Camera, Carrot, Check, ChevronRight, CircleUserRound, Cookie, CookingPot, CupSoda,
   Clock3, DoorOpen, Egg, Fish, Home, LayoutGrid, List, LoaderCircle, LogOut, Map, Milk, Package, PackageCheck, PenLine,
-  PanelsTopLeft, Plus, Refrigerator, ScanLine, Search, Settings2, ShieldCheck, Snowflake, Sparkles, Trash2, UtensilsCrossed, Wheat, X,
+  PanelsTopLeft, Plus, Refrigerator, ScanLine, Search, Settings2, Share2, ShieldCheck, Snowflake, Sparkles, Trash2, UtensilsCrossed, Wheat, X,
 } from 'lucide-react'
 import { useAuth } from './contexts/AuthContext'
 import { showAppAlert, showAppConfirm } from './contexts/AppDialogContext'
 import { demoData } from './demoData'
 import { isSupabaseConfigured } from './lib/supabase'
 import {
-  approveBarcodeProduct, consumeInventoryItems, createInventoryItem, createKitchenMap, createStorageSpace, deleteKitchenMap, deletePersonalRecipe, deleteSharedBarcodeProduct, deleteStorageSpace, finishInventoryItem, getDaysLeft, loadAppData, loadBarcodeProductSubmissions, loadSharedBarcodeProducts, lookupBarcode,
+  approveBarcodeProduct, consumeInventoryItems, createInventoryItem, createKitchenMap, createRecipeShare, createStorageSpace, deleteKitchenMap, deletePersonalRecipe, deleteSharedBarcodeProduct, deleteStorageSpace, finishInventoryItem, getDaysLeft, loadAppData, loadBarcodeProductSubmissions, loadSharedBarcodeProducts, loadSharedRecipe, lookupBarcode,
   markNotificationsRead, moveInventoryItem, rejectBarcodeProduct, submitBarcodeProduct, toggleSavedRecipe, updateKitchenName, updateProfileNickname, updateStorageSpace,
-  savePersonalRecipe, updateInventoryItem, updateKitchenMap, updateSharedBarcodeProduct, updateStorageSpaces, type AppData,
+  savePersonalRecipe, saveSharedRecipe, updateInventoryItem, updateKitchenMap, updateSharedBarcodeProduct, updateStorageSpaces, type AppData,
 } from './services/kitchenService'
 import { getInventoryImageUrl, uploadInventoryImage } from './services/imageService'
-import type { AppNotification, BarcodeProductSubmission, InventoryItem, KitchenMap as KitchenMapPage, ProductCatalogItem, Profile, Recipe, StorageSpace } from './types'
+import type { AppNotification, BarcodeProductSubmission, InventoryItem, KitchenMap as KitchenMapPage, ProductCatalogItem, Profile, Recipe, SharedRecipe, StorageSpace } from './types'
 import './onboarding.css'
 
 type Tab = 'home' | 'map' | 'search' | 'consume' | 'recipes' | 'profile'
@@ -96,6 +96,13 @@ function App() {
   const [query, setQuery] = useState('')
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
+  const [sharedRecipeId, setSharedRecipeId] = useState<string | null>(() => window.location.pathname.match(/^\/recipe\/shared\/([0-9a-f-]{36})\/?$/i)?.[1] || null)
+
+  useEffect(() => {
+    const syncSharedRecipePath = () => setSharedRecipeId(window.location.pathname.match(/^\/recipe\/shared\/([0-9a-f-]{36})\/?$/i)?.[1] || null)
+    window.addEventListener('popstate', syncSharedRecipePath)
+    return () => window.removeEventListener('popstate', syncSharedRecipePath)
+  }, [])
 
   const refresh = async () => {
     if (!profile || demoMode) return
@@ -156,6 +163,7 @@ function App() {
       {addOpen && data && data.spaces.length > 0 && <AddItemSheet data={data} initialSpaceId={addTargetSpaceId} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onClose={() => setAddOpen(false)} onSaved={async () => { setAddOpen(false); await refresh() }} />}
       {notificationsOpen && <NotificationsSheet notifications={data?.notifications || []} demoMode={demoMode} profileId={profile?.id || ''} onClose={() => setNotificationsOpen(false)} onRead={refresh} />}
       {selectedItem && data && <ItemDetailSheet item={selectedItem} spaces={data.spaces} demoMode={demoMode} onClose={() => setSelectedItem(null)} onSaved={async () => { setSelectedItem(null); await refresh() }} />}
+      {sharedRecipeId && data && !demoMode && <SharedRecipeSheet shareId={sharedRecipeId} items={data.items} onClose={() => { window.history.replaceState({}, '', '/'); setSharedRecipeId(null) }} onSaved={refresh} />}
     </div>
   )
 }
@@ -610,6 +618,19 @@ function RecipeScreen({ data, profileId, demoMode, onChanged }: { data: AppData;
     if (!await showAppConfirm(`${recipe.title} 레시피를 삭제할까요?`, { title: '내 레시피 삭제', confirmLabel: '삭제', kind: 'danger' })) return
     await deletePersonalRecipe(profileId, recipe.id); setSelected(null); await onChanged()
   }
+  const share = async (recipe: Recipe) => {
+    if (demoMode) return showAppAlert('미리보기에서는 공유 링크를 만들 수 없어요.')
+    try {
+      const shareId = await createRecipeShare(recipe.id)
+      const url = `${window.location.origin}/recipe/shared/${shareId}`
+      if (navigator.share) {
+        try { await navigator.share({ title: recipe.title, text: `${recipe.title} 레시피를 공유했어요.`, url }); return }
+        catch (error) { if (error instanceof DOMException && error.name === 'AbortError') return }
+      }
+      await navigator.clipboard.writeText(url)
+      await showAppAlert('공유 링크를 복사했어요. 로그인한 사용자가 링크를 열면 레시피를 저장할 수 있어요.', '링크가 복사됐어요')
+    } catch (error) { void showAppAlert(error instanceof Error ? error.message : '공유 링크를 만들지 못했습니다.', '공유하지 못했어요', 'danger') }
+  }
   return <>
     <div className="page-heading"><div><p>나만의 요리 메모장</p><h1>레시피북</h1></div><button className="icon-text recipe-add" onClick={() => setEditing('new')}><Plus /> 레시피 추가</button></div>
     <div className="recipe-book-tabs"><button className={view === 'book' ? 'active' : ''} onClick={() => { setView('book'); setQuery('') }}>내 레시피북 <span>{bookRecipes.length}</span></button><button className={view === 'recommend' ? 'active' : ''} onClick={() => { setView('recommend'); setQuery('') }}>기본 추천</button></div>
@@ -617,7 +638,7 @@ function RecipeScreen({ data, profileId, demoMode, onChanged }: { data: AppData;
     <label className="global-search recipe-search"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="레시피 이름이나 재료로 검색" />{query && <button onClick={() => setQuery('')}><X /></button>}</label>
     <SectionTitle title={view === 'book' ? '저장한 레시피' : '추천 레시피'} action={`${searchedRecipes.length}개`} />
     <div className="recipe-list">{visibleRecipes.length ? visibleRecipes.map((recipe) => { const match = getRecipeMatch(recipe, data.items); const personal = recipe.created_by === profileId; return <div className="recipe-list-row" key={recipe.id}><button onClick={() => setSelected(recipe)}><span>{personal ? '📝' : '🍳'}</span><div><h3>{recipe.title}</h3><p>{recipe.summary}</p><small><Clock3 /> {recipe.cook_minutes || '-'}분 · 재료 {match.have}/{match.total}</small></div><ChevronRight /></button>{view === 'book' ? <button aria-label={`${recipe.title} 수정`} onClick={() => setEditing(recipe)}><PenLine /></button> : <button className={data.savedRecipeIds.includes(recipe.id) ? 'saved' : ''} aria-label={`${recipe.title} 저장`} onClick={() => void toggleSave(recipe)}><BookOpen /></button>}</div> }) : <div className="no-results"><BookOpen /><p>{view === 'book' ? '레시피를 추가하거나 추천에서 저장해 보세요.' : '검색 결과가 없어요.'}</p></div>}</div>
-    {selected && <RecipeDetail recipe={selected} items={data.items} saved={data.savedRecipeIds.includes(selected.id)} onToggleSave={selected.created_by === profileId ? undefined : () => void toggleSave(selected)} onEdit={view === 'book' ? () => { setEditing(selected); setSelected(null) } : undefined} onDelete={selected.created_by === profileId ? () => void remove(selected) : undefined} onClose={() => setSelected(null)} />}
+    {selected && <RecipeDetail recipe={selected} items={data.items} saved={data.savedRecipeIds.includes(selected.id)} onToggleSave={selected.created_by === profileId ? undefined : () => void toggleSave(selected)} onShare={selected.created_by === profileId ? () => void share(selected) : undefined} onEdit={view === 'book' ? () => { setEditing(selected); setSelected(null) } : undefined} onDelete={selected.created_by === profileId ? () => void remove(selected) : undefined} onClose={() => setSelected(null)} />}
     {editing && <RecipeEditor recipe={editing === 'new' ? null : editing} profileId={profileId} savedRecipeIds={data.savedRecipeIds} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await onChanged() }} />}
   </>
 }
@@ -791,10 +812,37 @@ function BarcodeCameraScanner({ onDetected }: { onDetected: (barcode: string) =>
   </section>
 }
 
-function RecipeDetail({ recipe, items, saved, onToggleSave, onEdit, onDelete, onClose }: { recipe: Recipe; items: InventoryItem[]; saved: boolean; onToggleSave?: () => void; onEdit?: () => void; onDelete?: () => void; onClose: () => void }) {
+function RecipeDetail({ recipe, items, saved, authorName, onToggleSave, onShare, onEdit, onDelete, onClose }: { recipe: Recipe; items: InventoryItem[]; saved: boolean; authorName?: string; onToggleSave?: () => void; onShare?: () => void; onEdit?: () => void; onDelete?: () => void; onClose: () => void }) {
   const [videoOpen, setVideoOpen] = useState(false)
   const embedUrl = getYoutubeEmbedUrl(recipe.youtube_url)
-  return <div className="sheet-backdrop"><section className="recipe-detail"><div className="recipe-detail-nav"><button onClick={onClose}><ArrowLeft /> 뒤로</button><div>{onEdit && <button onClick={onEdit}><PenLine /> 수정</button>}{onDelete && <button className="danger" onClick={onDelete}><Trash2 /> 삭제</button>}</div></div><div className="sheet-head"><div><p>{recipe.cook_minutes || '-'}분 · {recipe.difficulty || '난이도 없음'}</p><h2>{recipe.title}</h2></div></div>{onToggleSave && <button className={`recipe-save-button ${saved ? 'saved' : ''}`} onClick={onToggleSave}><BookOpen /> {saved ? '저장됨' : '레시피 저장'}</button>}{recipe.youtube_url && <div className="recipe-video-actions">{embedUrl && <button onClick={() => setVideoOpen(true)}>▶ 영상 보기</button>}<a href={recipe.youtube_url} target="_blank" rel="noreferrer">유튜브 열기 ↗</a></div>}<p>{recipe.summary}</p><h3>재료</h3>{recipe.ingredients?.map((ingredient) => { const have = items.some((item) => itemMatchesIngredient(item, ingredient.ingredient_name)); return <div className={`recipe-ingredient ${have ? 'have' : ''}`} key={ingredient.ingredient_name}><span>{have ? <Check /> : <Plus />}</span><b>{ingredient.ingredient_name}</b><small>{ingredient.amount} · {have ? '집에 있어요' : '추가로 필요해요'}</small></div> })}<h3>만드는 법</h3>{recipe.instructions.length ? <ol>{recipe.instructions.map((step, index) => <li key={`${index}-${step}`}><span>{index + 1}</span>{step}</li>)}</ol> : <p>아직 조리 메모가 없어요.</p>}</section>{videoOpen && embedUrl && <div className="recipe-video-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setVideoOpen(false)}><section className="recipe-video-player"><div><b>{recipe.title}</b><button onClick={() => setVideoOpen(false)}><X /></button></div><iframe src={embedUrl} title={`${recipe.title} 유튜브 영상`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen /></section></div>}</div>
+  return <div className="sheet-backdrop"><section className="recipe-detail"><div className="recipe-detail-nav"><button onClick={onClose}><ArrowLeft /> 뒤로</button><div>{onShare && <button onClick={onShare}><Share2 /> 공유</button>}{onEdit && <button onClick={onEdit}><PenLine /> 수정</button>}{onDelete && <button className="danger" onClick={onDelete}><Trash2 /> 삭제</button>}</div></div><div className="sheet-head"><div><p>{authorName ? `${authorName}님의 레시피 · ` : ''}{recipe.cook_minutes || '-'}분 · {recipe.difficulty || '난이도 없음'}</p><h2>{recipe.title}</h2></div></div>{onToggleSave && <button className={`recipe-save-button ${saved ? 'saved' : ''}`} disabled={saved} onClick={onToggleSave}><BookOpen /> {saved ? '내 레시피북에 저장됨' : '내 레시피북에 저장'}</button>}{recipe.youtube_url && <div className="recipe-video-actions">{embedUrl && <button onClick={() => setVideoOpen(true)}>▶ 영상 보기</button>}<a href={recipe.youtube_url} target="_blank" rel="noreferrer">유튜브 열기 ↗</a></div>}<p>{recipe.summary}</p><h3>재료</h3>{recipe.ingredients?.map((ingredient) => { const have = items.some((item) => itemMatchesIngredient(item, ingredient.ingredient_name)); return <div className={`recipe-ingredient ${have ? 'have' : ''}`} key={ingredient.ingredient_name}><span>{have ? <Check /> : <Plus />}</span><b>{ingredient.ingredient_name}</b><small>{ingredient.amount} · {have ? '집에 있어요' : '추가로 필요해요'}</small></div> })}<h3>만드는 법</h3>{recipe.instructions.length ? <ol>{recipe.instructions.map((step, index) => <li key={`${index}-${step}`}><span>{index + 1}</span>{step}</li>)}</ol> : <p>아직 조리 메모가 없어요.</p>}</section>{videoOpen && embedUrl && <div className="recipe-video-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setVideoOpen(false)}><section className="recipe-video-player"><div><b>{recipe.title}</b><button onClick={() => setVideoOpen(false)}><X /></button></div><iframe src={embedUrl} title={`${recipe.title} 유튜브 영상`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen /></section></div>}</div>
+}
+
+function SharedRecipeSheet({ shareId, items, onClose, onSaved }: { shareId: string; items: InventoryItem[]; onClose: () => void; onSaved: () => Promise<void> }) {
+  const [shared, setShared] = useState<SharedRecipe | null>(null)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    let active = true
+    loadSharedRecipe(shareId).then((value) => { if (active) setShared(value) }).catch((nextError) => { if (active) setError(nextError instanceof Error ? nextError.message : '공유 레시피를 불러오지 못했습니다.') })
+    return () => { active = false }
+  }, [shareId])
+  if (error) return <div className="sheet-backdrop"><section className="simple-sheet shared-recipe-error"><div className="sheet-head"><div><p>공유 레시피</p><h2>레시피를 열 수 없어요</h2></div><button onClick={onClose}><X /></button></div><p>{error}</p><button className="primary-button" onClick={onClose}>돌아가기</button></section></div>
+  if (!shared) return <div className="sheet-backdrop"><section className="simple-sheet shared-recipe-loading"><LoaderCircle className="spin" /><p>공유 레시피를 불러오고 있어요.</p></section></div>
+  const recipe: Recipe = { ...shared.recipe, id: `shared-${shared.id}`, created_by: null }
+  const saved = Boolean(shared.saved_recipe_id || shared.is_own)
+  const save = async () => {
+    if (saved || saving) return
+    setSaving(true)
+    try {
+      const recipeId = await saveSharedRecipe(shareId)
+      setShared((current) => current ? { ...current, saved_recipe_id: recipeId } : current)
+      await onSaved()
+      await showAppAlert('내 레시피북에 복사해 저장했어요.', '레시피를 저장했어요')
+    } catch (nextError) { void showAppAlert(nextError instanceof Error ? nextError.message : '레시피를 저장하지 못했습니다.', '저장하지 못했어요', 'danger') }
+    finally { setSaving(false) }
+  }
+  return <RecipeDetail recipe={recipe} items={items} saved={saved} authorName={shared.author_name} onToggleSave={shared.is_own ? undefined : () => void save()} onClose={onClose} />
 }
 
 function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, onSignOut, onGoMap, onGoRecipes, onOpenNotifications, onChanged }: { profile: Profile | null; kitchenName: string; kitchenId: string; demoMode: boolean; onExitDemo: () => void; onSignOut: () => Promise<void>; onGoMap: () => void; onGoRecipes: () => void; onOpenNotifications: () => void; onChanged: () => Promise<void> }) {

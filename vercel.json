@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/recipe/shared/:shareId", "destination": "/index.html" }
+  ]
+}

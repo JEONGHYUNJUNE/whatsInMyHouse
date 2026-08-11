@@ -102,6 +102,14 @@ export type Recipe = {
   ingredients?: { ingredient_name: string; amount: string | null; is_optional: boolean }[]
 }
 
+export type SharedRecipe = {
+  id: string
+  author_name: string
+  recipe: Omit<Recipe, 'id' | 'created_by'>
+  is_own: boolean
+  saved_recipe_id: string | null
+}
+
 export type AppNotification = {
   id: string
   profile_id: string

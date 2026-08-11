@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase'
-import type { AppNotification, BarcodeProductSubmission, InventoryItem, Kitchen, KitchenMap, ProductCatalogItem, Recipe, StorageSpace } from '../types'
+import type { AppNotification, BarcodeProductSubmission, InventoryItem, Kitchen, KitchenMap, ProductCatalogItem, Recipe, SharedRecipe, StorageSpace } from '../types'
 
 export type AppData = {
   kitchen: Kitchen
@@ -179,6 +179,24 @@ export async function savePersonalRecipe(profileId: string, recipeId: string | n
 export async function deletePersonalRecipe(profileId: string, recipeId: string) {
   const { error } = await supabase.from('recipes').delete().eq('id', recipeId).eq('created_by', profileId)
   if (error) throw error
+}
+
+export async function createRecipeShare(recipeId: string) {
+  const { data, error } = await supabase.rpc('create_recipe_share', { target_recipe_id: recipeId })
+  if (error) throw error
+  return data as string
+}
+
+export async function loadSharedRecipe(shareId: string) {
+  const { data, error } = await supabase.rpc('get_shared_recipe', { target_share_id: shareId })
+  if (error) throw error
+  return data as SharedRecipe
+}
+
+export async function saveSharedRecipe(shareId: string) {
+  const { data, error } = await supabase.rpc('save_shared_recipe', { target_share_id: shareId })
+  if (error) throw error
+  return data as string
 }
 
 export async function markNotificationsRead(profileId: string) {
