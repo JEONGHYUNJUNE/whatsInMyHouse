@@ -9,7 +9,7 @@
 - 개인 주방 및 기본 보관공간 자동 생성
 - 주방맵과 공간별 식재료 보기
 - 주방맵/목록 전환, 공간 생성·수정·삭제와 배치 저장
-- 후면 카메라 자동 바코드 스캔과 Open Food Facts 보조 조회
+- 후면 카메라 자동 바코드 스캔과 국내 식품 API 우선·Open Food Facts 보조 조회
 - 직접 입력, 사진 촬영/선택, 위치·수량·기한·메모 저장
 - 상품명·별칭·메모·카테고리·위치 통합 검색
 - 공간 간 식재료 이동과 소진 처리
@@ -117,6 +117,18 @@ npm run dev
 npm run build
 ```
 
+## 6. 바코드 조회 Edge Function
+
+상품 조회는 사용자 등록 이력과 앱 카탈로그를 먼저 확인한 뒤, 식품안전나라 `I2570`, `C005`를 순서대로 조회합니다. 품목보고번호가 확인되고 공공데이터포털 키가 설정되어 있으면 HACCP 제품 이미지 정보로 결과를 보강하며, 국내 결과가 없을 때만 Open Food Facts를 호출합니다.
+
+```bash
+supabase secrets set FOOD_SAFETY_KOREA_API_KEY=식품안전나라_인증키
+supabase secrets set DATA_GO_KR_API_KEY=공공데이터포털_인증키
+supabase functions deploy barcode-lookup
+```
+
+`DATA_GO_KR_API_KEY`를 사용하려면 공공데이터포털에서 **한국식품안전관리인증원_HACCP 제품이미지 및 포장지표기정보** 활용신청이 승인되어야 합니다. 키가 없더라도 나머지 조회 단계는 정상 동작합니다.
+
 ## Git 작업 방식
 
 - 일반 요청에서는 변경사항 구현과 빌드 검증까지만 진행합니다.
@@ -132,7 +144,6 @@ npm run build
 ## 다음 구현 후보
 
 - 모바일 카메라 연속 바코드 스캔
-- 식품안전나라 API를 호출하는 Supabase Edge Function
 - 권장 섭취일 자동 적용 UI
 - 주방맵 드래그·크기 조절·저장
 - 소비기한 웹 푸시 Edge Function과 cron
