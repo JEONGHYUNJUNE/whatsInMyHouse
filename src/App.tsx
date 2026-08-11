@@ -630,7 +630,9 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
       await createInventoryItem({ kitchen_id: data.kitchen.id, storage_space_id: spaceId, catalog_product_id: catalogProductId, created_by: profileId, product_name: name.trim(), alias: alias.trim() || null, barcode: barcode || null, image_path: imagePath, category: category || null, quantity: Number(quantity) || quantityStep, unit, purchased_at: new Date().toISOString().slice(0, 10), opened_at: null, expiration_date: deadlineType === 'expiration' ? deadlineDate || null : null, use_by_date: deadlineType === 'use_by' ? deadlineDate || null : null, recommended_use_date: null, memo: memo.trim() || null, registration_method: mode })
       if (needsSharedReview && barcode) {
         try { await submitBarcodeProduct({ barcode, productName: name.trim(), category, unit, imageUrl: getInventoryImageUrl(imagePath) }) }
-        catch (submissionError) { console.warn('공용 바코드 검토 요청 실패:', submissionError) }
+        catch (submissionError) {
+          console.warn('공용 바코드 검토 요청 실패:', submissionError)
+        }
       }
       await onSaved()
     } catch (error) { alert(error instanceof Error ? error.message : '저장하지 못했습니다.') } finally { setBusy(false) }

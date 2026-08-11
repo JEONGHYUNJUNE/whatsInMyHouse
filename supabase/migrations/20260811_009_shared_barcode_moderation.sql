@@ -146,9 +146,10 @@ begin
       and notification.title = '공용 바코드 검토 대기'
       and notification.is_read = false;
 
-    insert into public.notifications (profile_id, title, message)
+    insert into public.notifications (profile_id, notification_type, title, message)
     select
       admin_profile.id,
+      'barcode_review',
       '공용 바코드 검토 대기',
       '새 검토대기 ' || (select count(*) from public.barcode_product_submissions) || '건이 있습니다.'
     from public.profiles admin_profile
@@ -233,3 +234,55 @@ revoke all on function public.approve_barcode_product(uuid, text, text, text, te
 grant execute on function public.approve_barcode_product(uuid, text, text, text, text, text) to authenticated;
 revoke all on function public.reject_barcode_product(uuid) from public;
 grant execute on function public.reject_barcode_product(uuid) to authenticated;
+
+-- 검토 요청 오류가 있었던 동안 개인 재고에만 저장된 바코드를 한 번 복구합니다.
+do $$
+declare
+  restored_count integer;
+begin
+  with latest_personal_products as (
+    select distinct on (item.barcode)
+      item.barcode,
+      item.product_name,
+      item.category,
+      item.unit,
+      item.image_path,
+      item.created_by
+    from public.inventory_items item
+    where item.barcode ~ '^[0-9]{8,14}$'
+      and item.created_by is not null
+      and not exists (select 1 from public.product_catalog catalog where catalog.barcode = item.barcode)
+      and not exists (select 1 from public.barcode_product_submissions submission where submission.barcode = item.barcode)
+    order by item.barcode, item.created_at desc
+  ), restored as (
+    insert into public.barcode_product_submissions (
+      barcode, product_name, category, default_unit, image_url, submitted_by
+    )
+    select barcode, product_name, category, unit,
+      case when image_path ~ '^https?://' then image_path else null end,
+      created_by
+    from latest_personal_products
+    on conflict (barcode) do nothing
+    returning id
+  )
+  select count(*) into restored_count from restored;
+
+  if restored_count > 0 then
+    delete from public.notifications notification
+    using public.profiles admin_profile
+    where notification.profile_id = admin_profile.id
+      and admin_profile.is_admin = true
+      and notification.title = '공용 바코드 검토 대기'
+      and notification.is_read = false;
+
+    insert into public.notifications (profile_id, notification_type, title, message)
+    select
+      admin_profile.id,
+      'barcode_review',
+      '공용 바코드 검토 대기',
+      '새 검토대기 ' || (select count(*) from public.barcode_product_submissions) || '건이 있습니다.'
+    from public.profiles admin_profile
+    where admin_profile.is_admin = true;
+  end if;
+end;
+$$;
