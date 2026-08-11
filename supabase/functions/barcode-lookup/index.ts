@@ -48,10 +48,12 @@ Deno.serve(async (request) => {
     const product = productRows.find((row) => row.PRDLST_REPORT_NO === reportNo) || productRows[0]
     const publicDataKey = Deno.env.get('DATA_GO_KR_API_KEY')
     const haccp = reportNo && publicDataKey ? await fetchHaccpProduct(publicDataKey, reportNo).catch(() => null) : null
+    const name = product?.PRDLST_NM || barcodeProduct.PRDT_NM || barcodeProduct.PRDLST_NM || haccp?.prdlstNm || ''
+    if (!name.trim()) return Response.json({ found: false, reason: 'missing_product_name' }, { headers: corsHeaders })
 
     return Response.json({
       found: true,
-      name: product?.PRDLST_NM || barcodeProduct.PRDT_NM || barcodeProduct.PRDLST_NM || haccp?.prdlstNm || '',
+      name,
       brand: product?.BSSH_NM || barcodeProduct.CMPNY_NM || barcodeProduct.BSSH_NM || haccp?.manufacture || '',
       category: product?.PRDLST_DCNM || barcodeProduct.PRDLST_DCNM || barcodeProduct.PRDLST_NM || barcodeProduct.HRNK_PRDLST_NM || haccp?.prdkind || '',
       imageUrl: haccp?.productImg || haccp?.imgurl || haccp?.imgUrl || '',

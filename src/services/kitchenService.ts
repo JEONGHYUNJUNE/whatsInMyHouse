@@ -228,16 +228,17 @@ export async function lookupBarcode(barcode: string, profileId?: string, kitchen
   if (local.data) return { catalogId: local.data.id, name: local.data.product_name, imageUrl: local.data.image_url || '', brand: local.data.brand || '', category: local.data.category || '', unit: local.data.default_unit || '개', source: local.data.data_source }
 
   const { data: foodSafety } = await supabase.functions.invoke('barcode-lookup', { body: { barcode } }).catch(() => ({ data: null }))
-  const openFoodFacts = foodSafety?.found ? null : await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}?fields=product_name,product_name_ko,brands,image_front_small_url,categories_tags`)
+  const hasDomesticProduct = Boolean(foodSafety?.found && String(foodSafety.name || '').trim())
+  const openFoodFacts = hasDomesticProduct ? null : await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}?fields=product_name,product_name_ko,brands,image_front_small_url,categories_tags`)
     .then((response) => response.ok ? response.json() : null).catch(() => null)
   const offProduct = openFoodFacts?.product || null
-  const name = foodSafety?.found ? foodSafety.name : offProduct?.product_name_ko || offProduct?.product_name || ''
+  const name = hasDomesticProduct ? foodSafety.name : offProduct?.product_name_ko || offProduct?.product_name || ''
   if (!name) return null
   const offCategory = String(offProduct?.categories_tags?.[0] || '').replace(/^[a-z]{2}:/, '').replaceAll('-', ' ')
-  const source = foodSafety?.found ? 'foodsafety_korea' as const : 'open_food_facts' as const
-  const brand = foodSafety?.found ? foodSafety.brand || '' : offProduct?.brands || ''
-  const category = foodSafety?.found ? foodSafety.category || offCategory : offCategory
-  const imageUrl = foodSafety?.found ? foodSafety.imageUrl || '' : offProduct?.image_front_small_url || ''
+  const source = hasDomesticProduct ? 'foodsafety_korea' as const : 'open_food_facts' as const
+  const brand = hasDomesticProduct ? foodSafety.brand || '' : offProduct?.brands || ''
+  const category = hasDomesticProduct ? foodSafety.category || offCategory : offCategory
+  const imageUrl = hasDomesticProduct ? foodSafety.imageUrl || '' : offProduct?.image_front_small_url || ''
   let catalogId: string | null = null
   if (profileId && profileId !== 'demo-profile') {
     const saved = await rememberCatalogProduct({ barcode, name, brand, category, imageUrl, profileId, source })
