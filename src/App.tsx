@@ -26,7 +26,45 @@ const spaceIcons: Record<string, React.ReactNode> = {
 
 const categoryOptions = ['채소', '과일', '육류', '수산물', '달걀', '유제품', '곡류/면', '음료', '조미료/소스', '간식', '냉동식품', '기타']
 
+function useLatestAppVersion() {
+  useEffect(() => {
+    if (import.meta.env.DEV) return
+    let checking = false
+    const check = async () => {
+      if (checking || !navigator.onLine) return
+      checking = true
+      try {
+        const response = await fetch(`/index.html?checkedAt=${Date.now()}`, { cache: 'no-store' })
+        if (!response.ok) return
+        const html = await response.text()
+        const latestAsset = html.match(/src="([^\"]*\/assets\/index-[^\"]+\.js)"/)?.[1]
+        const currentAsset = document.querySelector<HTMLScriptElement>('script[type="module"][src*="/assets/index-"]')?.getAttribute('src')
+        if (!latestAsset || !currentAsset || latestAsset === currentAsset) return
+        const nextUrl = new URL(window.location.href)
+        if (nextUrl.searchParams.get('_appVersion') === latestAsset) return
+        nextUrl.searchParams.set('_appVersion', latestAsset)
+        window.location.replace(nextUrl.toString())
+      } catch {
+        // 네트워크가 불안정하면 현재 버전을 유지하고 다음 확인 때 다시 시도합니다.
+      } finally { checking = false }
+    }
+    const onVisible = () => { if (document.visibilityState === 'visible') void check() }
+    void check()
+    const timer = window.setInterval(() => void check(), 60_000)
+    window.addEventListener('focus', check)
+    window.addEventListener('online', check)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', check)
+      window.removeEventListener('online', check)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
+}
+
 function App() {
+  useLatestAppVersion()
   const { session, profile, loading, signInWithCredentials, signUpWithCredentials, signOut, refreshProfile } = useAuth()
   const [demoMode, setDemoMode] = useState(false)
   const [data, setData] = useState<AppData | null>(null)
