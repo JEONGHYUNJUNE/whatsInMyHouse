@@ -87,6 +87,27 @@ export async function updateInventoryItem(itemId: string, input: Partial<Invento
   return data
 }
 
+export async function searchPersonalProducts(profileId: string, kitchenId: string, query: string) {
+  const keyword = query.trim()
+  if (!keyword || profileId === 'demo-profile') return []
+  const { data, error } = await supabase
+    .from('inventory_items')
+    .select('product_name, alias, barcode, image_path, category, unit, catalog_product_id, created_at')
+    .eq('kitchen_id', kitchenId)
+    .eq('created_by', profileId)
+    .ilike('product_name', `%${keyword}%`)
+    .order('created_at', { ascending: false })
+    .limit(30)
+  if (error) throw error
+  const seen = new Set<string>()
+  return (data || []).filter((item) => {
+    const key = item.barcode || `${item.product_name.trim().toLowerCase()}|${item.unit}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).slice(0, 6)
+}
+
 export async function moveInventoryItem(item: InventoryItem, nextSpaceId: string, profileId: string) {
   const { error } = await supabase.rpc('move_inventory_item', {
     target_item_id: item.id,
