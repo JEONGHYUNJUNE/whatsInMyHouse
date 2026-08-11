@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { IScannerControls } from '@zxing/browser'
 import {
-  Apple, ArrowLeft, Beef, Bell, BookOpen, Box, Camera, Carrot, Check, ChevronRight, CircleUserRound, Cookie, CookingPot, CupSoda,
+  Apple, ArrowLeft, Beef, Bell, BookOpen, BottleWine, Box, Camera, Carrot, Check, ChevronRight, CircleUserRound, Cookie, CupSoda,
   Clock3, DoorOpen, Egg, Fish, Home, LayoutGrid, List, LoaderCircle, LogOut, Map, Milk, Package, PackageCheck, PenLine,
   Plus, Refrigerator, ScanLine, Search, Settings2, Share2, ShieldCheck, Snowflake, Sparkles, Trash2, UtensilsCrossed, Wheat, X,
 } from 'lucide-react'
@@ -1002,15 +1002,15 @@ function dateLabel(item: InventoryItem) { const days = getDaysLeft(item); if (!N
 function normalize(value: string) { return value.replace(/\s/g, '').toLowerCase() }
 function getItemCategoryVisual(item: Pick<InventoryItem, 'category' | 'product_name'>): { key: string; icon: React.ReactNode } {
   const value = normalize(`${item.category || ''} ${item.product_name}`)
+  if (/조미료|소스|간장|고추장|된장|식초|참기름|소금|설탕/.test(value)) return { key: 'sauce', icon: <BottleWine /> }
   if (/채소|야채|나물|버섯|콩나물|시금치|오이|양파|당근|감자|고추/.test(value)) return { key: 'vegetable', icon: <Carrot /> }
   if (/과일|사과|바나나|딸기|포도|귤|오렌지|토마토/.test(value)) return { key: 'fruit', icon: <Apple /> }
-  if (/육류|고기|돼지|소|닭|햄|소시지/.test(value)) return { key: 'meat', icon: <Beef /> }
+  if (/육류|고기|돼지|소고기|쇠고기|닭|햄|소시지/.test(value)) return { key: 'meat', icon: <Beef /> }
   if (/수산|생선|해물|오징어|새우|조개|참치|멸치|어묵/.test(value)) return { key: 'seafood', icon: <Fish /> }
   if (/달걀|계란/.test(value)) return { key: 'egg', icon: <Egg /> }
   if (/유제품|우유|치즈|요거트|버터/.test(value)) return { key: 'dairy', icon: <Milk /> }
   if (/곡류|면|쌀|밥|국수|라면|떡|식빵|빵/.test(value)) return { key: 'grain', icon: <Wheat /> }
   if (/음료|주스|탄산|커피|차|물/.test(value)) return { key: 'drink', icon: <CupSoda /> }
-  if (/조미료|소스|간장|고추장|된장|식초|참기름|소금|설탕/.test(value)) return { key: 'sauce', icon: <CookingPot /> }
   if (/간식|과자|초콜릿|캔디/.test(value)) return { key: 'snack', icon: <Cookie /> }
   if (/냉동/.test(value)) return { key: 'frozen', icon: <Snowflake /> }
   return { key: 'other', icon: <Package /> }
