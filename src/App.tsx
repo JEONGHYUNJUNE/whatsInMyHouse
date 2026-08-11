@@ -1130,6 +1130,8 @@ function itemMatchesIngredient(item: InventoryItem, ingredientName: string) {
   const ingredient = normalizeIngredient(ingredientName)
   return [item.product_name, item.category].filter(Boolean).some((value) => {
     const candidate = normalizeIngredient(value as string)
+    if (candidate === ingredient) return true
+    if (ingredient.length < 2 || candidate.length < 2) return false
     return candidate.includes(ingredient) || ingredient.includes(candidate)
   })
 }
