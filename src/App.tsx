@@ -1191,10 +1191,22 @@ function itemMatchesIngredient(item: InventoryItem, ingredientName: string) {
   if (ingredient.length < 2) return false
   return productName.includes(ingredient)
 }
+const relatedIngredientGroups = [
+  ['김', '김가루', '구운김', '조미김', '돌김', '마른김'],
+]
+function explicitlyRelatedIngredient(item: InventoryItem, ingredient: string) {
+  const group = relatedIngredientGroups.find((names) => names.includes(ingredient))
+  if (!group) return false
+  const productName = normalizeIngredient(item.product_name)
+  const category = normalizeIngredient(item.category || '')
+  return group.some((name) => name !== ingredient && (productName === name || category === name || productName.endsWith(name)))
+}
 function getIngredientAvailability(items: InventoryItem[], ingredientName: string) {
   const have = items.find((item) => itemMatchesIngredient(item, ingredientName)) || null
   if (have) return { have, related: null as InventoryItem | null }
   const ingredient = normalizeIngredient(ingredientName)
+  const explicitRelated = items.find((item) => explicitlyRelatedIngredient(item, ingredient)) || null
+  if (explicitRelated) return { have: null as InventoryItem | null, related: explicitRelated }
   const related = ingredient.length < 2 ? null : items.find((item) => {
     const productName = normalizeIngredient(item.product_name)
     const category = normalizeIngredient(item.category || '')
