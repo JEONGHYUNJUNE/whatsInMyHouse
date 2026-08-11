@@ -1135,7 +1135,21 @@ function itemMatchesIngredient(item: InventoryItem, ingredientName: string) {
 }
 function getRecipeMatch(recipe: Recipe | undefined, items: InventoryItem[]) { const ingredients = recipe?.ingredients || []; const matches = ingredients.map((ingredient) => items.find((item) => itemMatchesIngredient(item, ingredient.ingredient_name))); return { total: ingredients.length, have: matches.filter(Boolean).length, urgent: matches.filter((item) => item && getDaysLeft(item) <= 3).length, missing: matches.filter((item) => !item).length } }
 function getRecommendedRecipes(recipes: Recipe[], items: InventoryItem[]) {
-  const daySeed = Math.floor(Date.now() / 86400000)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const todaySeed = Math.floor(today.getTime() / 86400000)
+  const todayRecipes = sortRecipesForDay(recipes, items, todaySeed)
+  if (todayRecipes.length < 2) return todayRecipes
+  const yesterdayFirstId = sortRecipesForDay(recipes, items, todaySeed - 1)[0]?.id
+  if (todayRecipes[0]?.id !== yesterdayFirstId) return todayRecipes
+  const nextRecipeIndex = todayRecipes.findIndex((recipe) => recipe.id !== yesterdayFirstId)
+  if (nextRecipeIndex <= 0) return todayRecipes
+  const [yesterdayRecipe] = todayRecipes.splice(0, 1)
+  todayRecipes.splice(nextRecipeIndex, 0, yesterdayRecipe)
+  return todayRecipes
+}
+
+function sortRecipesForDay(recipes: Recipe[], items: InventoryItem[], daySeed: number) {
   return [...recipes].sort((a, b) => {
     const left = getRecipeMatch(a, items)
     const right = getRecipeMatch(b, items)
