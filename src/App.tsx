@@ -3,19 +3,19 @@ import type { IScannerControls } from '@zxing/browser'
 import {
   Apple, ArrowLeft, Beef, Bell, BookOpen, BottleWine, Box, Camera, Carrot, Check, ChevronRight, CircleUserRound, Cookie, CupSoda,
   Clock3, DoorOpen, Egg, Fish, Home, LayoutGrid, List, LoaderCircle, LogOut, Map, Milk, Package, PackageCheck, PenLine,
-  Plus, Refrigerator, ScanLine, Search, Settings2, Share2, ShieldCheck, Snowflake, Sparkles, Trash2, UtensilsCrossed, Wheat, X,
+  Plus, Refrigerator, ScanLine, Search, Settings2, Share2, ShieldCheck, ShoppingBasket, Snowflake, Sparkles, Trash2, UtensilsCrossed, Wheat, X,
 } from 'lucide-react'
 import { useAuth } from './contexts/AuthContext'
 import { showAppAlert, showAppConfirm } from './contexts/AppDialogContext'
 import { demoData } from './demoData'
 import { isSupabaseConfigured } from './lib/supabase'
 import {
-  approveBarcodeProduct, consumeInventoryItems, createInventoryItem, createKitchenMap, createRecipeShare, createStorageSpace, deleteKitchenMap, deletePersonalRecipe, deleteSharedBarcodeProduct, deleteStorageSpace, finishInventoryItem, getDaysLeft, loadAppData, loadBarcodeProductSubmissions, loadSharedBarcodeProducts, loadSharedRecipe, lookupBarcode,
+  approveBarcodeProduct, consumeInventoryItems, createInventoryItem, createKitchenMap, createRecipeShare, createShoppingItem, createStorageSpace, deleteKitchenMap, deletePersonalRecipe, deleteSharedBarcodeProduct, deleteShoppingItem, deleteStorageSpace, finishInventoryItem, getDaysLeft, loadAppData, loadBarcodeProductSubmissions, loadSharedBarcodeProducts, loadSharedRecipe, lookupBarcode,
   markNotificationRead, markNotificationsRead, moveInventoryItem, rejectBarcodeProduct, searchPersonalProducts, submitBarcodeProduct, toggleSavedRecipe, updateKitchenName, updateProfileNickname, updateStorageSpace,
-  savePersonalRecipe, saveSharedRecipe, updateInventoryItem, updateKitchenMap, updateSharedBarcodeProduct, updateStorageSpaces, type AppData,
+  savePersonalRecipe, saveSharedRecipe, updateInventoryItem, updateKitchenMap, updateSharedBarcodeProduct, updateShoppingItem, updateStorageSpaces, type AppData,
 } from './services/kitchenService'
 import { getInventoryImageUrl, uploadInventoryImage } from './services/imageService'
-import type { AppNotification, BarcodeProductSubmission, InventoryItem, KitchenMap as KitchenMapPage, ProductCatalogItem, Profile, Recipe, SharedRecipe, StorageSpace } from './types'
+import type { AppNotification, BarcodeProductSubmission, InventoryItem, KitchenMap as KitchenMapPage, ProductCatalogItem, Profile, Recipe, SharedRecipe, ShoppingListItem, StorageSpace } from './types'
 import './onboarding.css'
 
 type Tab = 'home' | 'map' | 'search' | 'consume' | 'recipes' | 'profile'
@@ -149,9 +149,9 @@ function App() {
     return () => window.removeEventListener('popstate', syncSharedRecipePath)
   }, [])
 
-  const refresh = async () => {
+  const refresh = async (silent = false) => {
     if (!profile || demoMode) return
-    setDataLoading(true)
+    if (!silent) setDataLoading(true)
     try {
       setData(await loadAppData(profile.id))
       setSetupError('')
@@ -160,7 +160,7 @@ function App() {
       setSetupError('주방 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')
       setData(null)
     } finally {
-      setDataLoading(false)
+      if (!silent) setDataLoading(false)
     }
   }
 
@@ -210,7 +210,7 @@ function App() {
         <main className="screen"><KitchenSetup kitchenId={data.kitchen.id} mapId={data.maps[0]?.id || ''} onCreated={refresh} /></main>
       ) : (
         <main className="screen">
-          {tab === 'home' && <HomeScreen data={data} query={query} setQuery={setQuery} goSearch={() => setTab('search')} onSelectItem={setSelectedItem} onMoveItem={setMovingItem} onConsumeItem={setConsumingItem} onAdd={(spaceId) => { setAddTargetSpaceId(spaceId || null); setAddOpen(true) }} />}
+          {tab === 'home' && <HomeScreen data={data} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} query={query} setQuery={setQuery} goSearch={() => setTab('search')} onSelectItem={setSelectedItem} onMoveItem={setMovingItem} onConsumeItem={setConsumingItem} onAdd={(spaceId) => { setAddTargetSpaceId(spaceId || null); setAddOpen(true) }} onChanged={() => refresh(true)} />}
           {tab === 'map' && <KitchenMap data={data} demoMode={demoMode} onSelectItem={setSelectedItem} onMoveItem={setMovingItem} onConsumeItem={setConsumingItem} onAdd={(spaceId) => { setAddTargetSpaceId(spaceId); setAddOpen(true) }} onChanged={refresh} />}
           {tab === 'search' && <SearchScreen data={data} query={query} setQuery={setQuery} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onSelectItem={setSelectedItem} onChanged={refresh} />}
           {tab === 'consume' && <ConsumptionScreen data={data} demoMode={demoMode} onChanged={refresh} />}
@@ -316,10 +316,11 @@ function LoginPage({ onSignIn, onSignUp, onDemo }: { onSignIn: (username: string
   </main>
 }
 
-function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem, onMoveItem, onConsumeItem }: { data: AppData; query: string; setQuery: (v: string) => void; goSearch: () => void; onAdd: (spaceId?: string) => void; onSelectItem: (item: InventoryItem) => void; onMoveItem: (item: InventoryItem) => void; onConsumeItem: (item: InventoryItem) => void }) {
+function HomeScreen({ data, profileId, demoMode, query, setQuery, goSearch, onAdd, onSelectItem, onMoveItem, onConsumeItem, onChanged }: { data: AppData; profileId: string; demoMode: boolean; query: string; setQuery: (v: string) => void; goSearch: () => void; onAdd: (spaceId?: string) => void; onSelectItem: (item: InventoryItem) => void; onMoveItem: (item: InventoryItem) => void; onConsumeItem: (item: InventoryItem) => void; onChanged: () => Promise<void> }) {
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null)
   const [spaceView, setSpaceView] = useState<'list' | 'map'>(() => localStorage.getItem(`home-space-view:${data.kitchen.id}`) === 'map' ? 'map' : 'list')
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null)
+  const [shoppingOpen, setShoppingOpen] = useState(false)
   const [activeMapId, setActiveMapId] = useState(data.maps[0]?.id || '')
   const spaceDetailRef = useRef<HTMLElement | null>(null)
   const urgent = [...data.items].sort((a, b) => getDaysLeft(a) - getDaysLeft(b)).filter((item) => getDaysLeft(item) <= 7)
@@ -347,11 +348,14 @@ function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem, onMo
     {spaceView === 'list' ? <div className="space-summary">{data.spaces.map((space) => <button className={selectedSpaceId === space.id ? 'selected' : ''} key={space.id} onClick={() => selectSpace(space.id)}><span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>{space.item_count || 0}개</small></button>)}</div> : <><MapPageTabs maps={data.maps} activeMapId={activeMapId} onSelect={(mapId) => { setActiveMapId(mapId); setSelectedSpaceId(null) }} /><section className="home-kitchen-map">{activeMapSpaces.map((space) => <button key={space.id} className={`map-block type-${space.space_type} ${selectedSpaceId === space.id ? 'selected' : ''}`} style={{ gridColumn: `${space.map_x + 1} / span ${Math.max(1, space.map_width)}`, gridRow: `${space.map_y + 1} / span ${Math.max(1, space.map_height)}` }} onClick={() => selectSpace(space.id)}>{space.expiring_count ? <i>{space.expiring_count}</i> : null}<span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>{space.alias || `${space.item_count || 0}개 보관 중`}</small></button>)}</section>{activeMapSpaces.length === 0 && <p className="empty-map-message">이 맵에는 아직 보관공간이 없어요.</p>}</>}
     {selectedSpace && <section ref={spaceDetailRef} tabIndex={-1} className="home-space-detail space-focus-target"><div className="home-space-detail-head"><div><span>{spaceIcons[selectedSpace.space_type] || <Box />}</span><div><h3>{selectedSpace.name}</h3><p>{selectedSpace.alias || selectedSpace.memo || `${selectedItems.length}개의 식재료를 보관 중이에요.`}</p></div></div><button onClick={() => onAdd(selectedSpace.id)}><Plus /> 이 공간에 추가</button></div>{selectedItems.length ? <div className="home-space-items">{selectedItems.map((item) => <ItemRow key={item.id} item={item} onClick={() => onSelectItem(item)} onMove={() => onMoveItem(item)} onConsume={() => onConsumeItem(item)} />)}</div> : <div className="home-space-empty"><PackageCheck /><p>아직 보관한 식재료가 없어요.</p><button onClick={() => onAdd(selectedSpace.id)}>첫 식재료 추가하기</button></div>}</section>}
   </>
+  const shopping = <ShoppingListSummary items={data.shoppingItems} profileId={profileId} kitchenId={data.kitchen.id} demoMode={demoMode} onOpen={() => setShoppingOpen(true)} onChanged={onChanged} />
   if (data.items.length === 0) return <>
     <section className="welcome"><div><p>주방 공간이 준비됐어요 👋</p><h1>{data.kitchen.name}</h1></div><span className="item-total">식재료 <b>0</b>개</span></section>
     <section className="empty-inventory-home"><div><PackageCheck /></div><h2>아직 등록한 식재료가 없어요</h2><p>아래 보관공간을 선택하면<br />그 공간에 첫 식재료를 추가할 수 있어요.</p></section>
     <SectionTitle title="만든 보관공간" action={`${data.spaces.length}개`} />
     {spaces}
+    {shopping}
+    {shoppingOpen && <ShoppingListSheet items={data.shoppingItems} profileId={profileId} kitchenId={data.kitchen.id} demoMode={demoMode} onClose={() => setShoppingOpen(false)} onChanged={onChanged} />}
   </>
   return <>
     <section className="welcome"><div><p>오늘도 알뜰하게 👋</p><h1>{data.kitchen.name}</h1></div><span className="item-total">식재료 <b>{data.items.length}</b>개</span></section>
@@ -360,10 +364,63 @@ function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem, onMo
     <div className="expiry-scroll">{urgent.length ? urgent.map((item) => <ItemMiniCard item={item} onClick={() => onSelectItem(item)} key={item.id} />) : <EmptyMini />}</div>
     <SectionTitle title="우리 집 보관공간" action={`${data.spaces.length}개`} />
     {spaces}
+    {shopping}
     <SectionTitle title="오늘의 냉장고 털기" action="보유 재료 기준" />
     <article className="recipe-hero clickable" role="button" tabIndex={0} onClick={() => dailyRecipe && setSelectedRecipe(dailyRecipe)} onKeyDown={(event) => { if (event.key === 'Enter' && dailyRecipe) setSelectedRecipe(dailyRecipe) }}><div className="recipe-art">🍲</div><div><span className="eyebrow">임박 재료 우선 · 매일 새로운 추천</span><h2>{dailyRecipe?.title || '첫 레시피를 등록해 보세요'}</h2><p>{dailyRecipe?.summary}</p><div className="match-row"><Check /> 집에 있는 재료 {match.have}개</div></div><ChevronRight /></article>
     {selectedRecipe && <RecipeDetail recipe={selectedRecipe} items={data.items} saved={data.savedRecipeIds.includes(selectedRecipe.id)} onClose={() => setSelectedRecipe(null)} />}
+    {shoppingOpen && <ShoppingListSheet items={data.shoppingItems} profileId={profileId} kitchenId={data.kitchen.id} demoMode={demoMode} onClose={() => setShoppingOpen(false)} onChanged={onChanged} />}
   </>
+}
+
+function ShoppingListSummary({ items, profileId, kitchenId, demoMode, onOpen, onChanged }: { items: ShoppingListItem[]; profileId: string; kitchenId: string; demoMode: boolean; onOpen: () => void; onChanged: () => Promise<void> }) {
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const add = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!name.trim() || busy) return
+    if (demoMode) return showAppAlert('미리보기에서는 장보기 항목이 저장되지 않아요.')
+    setBusy(true)
+    try { await createShoppingItem(profileId, kitchenId, name); setName(''); await onChanged() }
+    catch (error) { void showAppAlert(error instanceof Error ? error.message : '장보기 항목을 추가하지 못했습니다.', '추가하지 못했어요', 'danger') }
+    finally { setBusy(false) }
+  }
+  const check = async (item: ShoppingListItem) => {
+    if (demoMode) return showAppAlert('미리보기에서는 장보기 항목이 변경되지 않아요.')
+    await updateShoppingItem(item.id, { is_checked: true }); await onChanged()
+  }
+  return <section className="shopping-summary"><div className="shopping-summary-head"><div><span><ShoppingBasket /></span><div><p>잊지 말고 챙겨요</p><h2>장볼 것 <b>{items.length}</b></h2></div></div><button onClick={onOpen}>전체 보기 <ChevronRight /></button></div><form onSubmit={add}><input value={name} onChange={(event) => setName(event.target.value)} placeholder="빠르게 추가하기" /><button disabled={busy || !name.trim()}>{busy ? <LoaderCircle className="spin" /> : <Plus />}</button></form>{items.length ? <div className="shopping-preview-list">{items.slice(0, 3).map((item) => <button key={item.id} onClick={() => void check(item)}><span><Check /></span><b>{item.product_name}</b><small>{item.quantity}{item.unit}{item.memo ? ` · ${item.memo}` : ''}</small></button>)}{items.length > 3 && <button className="shopping-more" onClick={onOpen}>외 {items.length - 3}개 더 보기</button>}</div> : <div className="shopping-empty"><Check /> 지금은 장볼 항목이 없어요.</div>}</section>
+}
+
+function ShoppingListSheet({ items, profileId, kitchenId, demoMode, onClose, onChanged }: { items: ShoppingListItem[]; profileId: string; kitchenId: string; demoMode: boolean; onClose: () => void; onChanged: () => Promise<void> }) {
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  const [quantity, setQuantity] = useState('1')
+  const [unit, setUnit] = useState('개')
+  const [memo, setMemo] = useState('')
+  const [busy, setBusy] = useState(false)
+  const reset = () => { setEditingId(null); setName(''); setQuantity('1'); setUnit('개'); setMemo('') }
+  const edit = (item: ShoppingListItem) => { setEditingId(item.id); setName(item.product_name); setQuantity(String(item.quantity)); setUnit(item.unit); setMemo(item.memo || '') }
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!name.trim() || busy) return
+    if (demoMode) return showAppAlert('미리보기에서는 장보기 항목이 저장되지 않아요.')
+    setBusy(true)
+    try {
+      if (editingId) await updateShoppingItem(editingId, { product_name: name.trim(), quantity: Math.max(.1, Number(quantity) || 1), unit, memo: memo.trim() || null })
+      else await createShoppingItem(profileId, kitchenId, name, Math.max(.1, Number(quantity) || 1), unit, memo)
+      reset(); await onChanged()
+    } catch (error) { void showAppAlert(error instanceof Error ? error.message : '장보기 항목을 저장하지 못했습니다.', '저장하지 못했어요', 'danger') }
+    finally { setBusy(false) }
+  }
+  const check = async (item: ShoppingListItem) => {
+    if (demoMode) return showAppAlert('미리보기에서는 장보기 항목이 변경되지 않아요.')
+    await updateShoppingItem(item.id, { is_checked: true }); if (editingId === item.id) reset(); await onChanged()
+  }
+  const remove = async (item: ShoppingListItem) => {
+    if (demoMode || !await showAppConfirm(`${item.product_name}을(를) 장보기 목록에서 삭제할까요?`, { title: '장보기 항목 삭제', confirmLabel: '삭제', kind: 'danger' })) return
+    await deleteShoppingItem(item.id); if (editingId === item.id) reset(); await onChanged()
+  }
+  return <div className="sheet-backdrop"><section className="shopping-list-sheet"><div className="sheet-head"><div><p>필요한 것을 한 번에</p><h2>장보기 체크리스트</h2></div><button onClick={onClose}><X /></button></div><form className="shopping-item-form" onSubmit={save}><label className="full"><span>상품명 *</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="예: 달걀" /></label><label><span>수량</span><input inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value.replace(/[^\d.]/g, ''))} /></label><label><span>단위</span><select value={unit} onChange={(event) => setUnit(event.target.value)}><option>개</option><option>팩</option><option>봉</option><option>병</option><option>통</option><option>판</option><option>단</option><option>g</option><option>kg</option></select></label><label className="full"><span>메모</span><input value={memo} onChange={(event) => setMemo(event.target.value)} placeholder="브랜드, 용도 등을 적어두세요." /></label><div className="shopping-form-actions full">{editingId && <button type="button" onClick={reset}>취소</button>}<button disabled={busy || !name.trim()}>{busy ? <LoaderCircle className="spin" /> : editingId ? <Check /> : <Plus />} {editingId ? '수정 저장' : '목록에 추가'}</button></div></form><div className="shopping-full-list">{items.length ? items.map((item) => <article key={item.id}><button className="shopping-check" aria-label={`${item.product_name} 구매 완료`} onClick={() => void check(item)}><Check /></button><button className="shopping-item-main" onClick={() => edit(item)}><b>{item.product_name}</b><span>{item.quantity}{item.unit}{item.memo ? ` · ${item.memo}` : ''}</span></button><button className="shopping-delete" aria-label={`${item.product_name} 삭제`} onClick={() => void remove(item)}><Trash2 /></button></article>) : <div className="no-results"><ShoppingBasket /><p>장볼 항목을 추가해 보세요.</p></div>}</div></section></div>
 }
 
 function KitchenMap({ data, demoMode, onSelectItem, onMoveItem, onConsumeItem, onAdd, onChanged }: { data: AppData; demoMode: boolean; onSelectItem: (item: InventoryItem) => void; onMoveItem: (item: InventoryItem) => void; onConsumeItem: (item: InventoryItem) => void; onAdd: (spaceId: string) => void; onChanged: () => Promise<void> }) {

@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase'
-import type { AppNotification, BarcodeProductSubmission, InventoryItem, Kitchen, KitchenMap, ProductCatalogItem, Recipe, SharedRecipe, StorageSpace } from '../types'
+import type { AppNotification, BarcodeProductSubmission, InventoryItem, Kitchen, KitchenMap, ProductCatalogItem, Recipe, SharedRecipe, ShoppingListItem, StorageSpace } from '../types'
 
 export type AppData = {
   kitchen: Kitchen
@@ -9,6 +9,7 @@ export type AppData = {
   recipes: Recipe[]
   savedRecipeIds: string[]
   notifications: AppNotification[]
+  shoppingItems: ShoppingListItem[]
 }
 
 export async function loadAppData(profileId: string): Promise<AppData> {
@@ -23,7 +24,7 @@ export async function loadAppData(profileId: string): Promise<AppData> {
   if (membershipError) throw membershipError
   const kitchen = membership.kitchens as unknown as Kitchen
 
-  const [mapsResult, spacesResult, itemsResult, recipesResult, savedRecipesResult, notificationsResult] = await Promise.all([
+  const [mapsResult, spacesResult, itemsResult, recipesResult, savedRecipesResult, notificationsResult, shoppingItemsResult] = await Promise.all([
     supabase.from('kitchen_maps').select('*').eq('kitchen_id', kitchen.id).order('sort_order'),
     supabase.from('storage_spaces').select('*').eq('kitchen_id', kitchen.id).order('sort_order'),
     supabase
@@ -39,6 +40,7 @@ export async function loadAppData(profileId: string): Promise<AppData> {
       .order('created_at', { ascending: false }),
     supabase.from('saved_recipes').select('recipe_id').eq('profile_id', profileId),
     supabase.from('notifications').select('id, profile_id, notification_type, inventory_item_id, title, message, is_read, created_at').eq('profile_id', profileId).eq('is_read', false).order('created_at', { ascending: false }).limit(30),
+    supabase.from('shopping_list_items').select('id, profile_id, kitchen_id, product_name, quantity, unit, memo, is_checked, checked_at, created_at').eq('profile_id', profileId).eq('is_checked', false).order('created_at', { ascending: false }),
   ])
 
   if (mapsResult.error) throw mapsResult.error
@@ -47,6 +49,7 @@ export async function loadAppData(profileId: string): Promise<AppData> {
   if (recipesResult.error) throw recipesResult.error
   if (savedRecipesResult.error) throw savedRecipesResult.error
   if (notificationsResult.error) throw notificationsResult.error
+  if (shoppingItemsResult.error) throw shoppingItemsResult.error
 
   const items = (itemsResult.data || []) as InventoryItem[]
   const spaces = (spacesResult.data || []).map((space) => ({
@@ -63,7 +66,24 @@ export async function loadAppData(profileId: string): Promise<AppData> {
     recipes: (recipesResult.data || []) as Recipe[],
     savedRecipeIds: (savedRecipesResult.data || []).map((row) => row.recipe_id),
     notifications: (notificationsResult.data || []) as AppNotification[],
+    shoppingItems: (shoppingItemsResult.data || []) as ShoppingListItem[],
   }
+}
+
+export async function createShoppingItem(profileId: string, kitchenId: string, productName: string, quantity = 1, unit = '개', memo = '') {
+  const { error } = await supabase.from('shopping_list_items').insert({ profile_id: profileId, kitchen_id: kitchenId, product_name: productName.trim(), quantity, unit, memo: memo.trim() || null })
+  if (error) throw error
+}
+
+export async function updateShoppingItem(itemId: string, input: { product_name?: string; quantity?: number; unit?: string; memo?: string | null; is_checked?: boolean }) {
+  const values = input.is_checked ? { ...input, checked_at: new Date().toISOString() } : input
+  const { error } = await supabase.from('shopping_list_items').update(values).eq('id', itemId)
+  if (error) throw error
+}
+
+export async function deleteShoppingItem(itemId: string) {
+  const { error } = await supabase.from('shopping_list_items').delete().eq('id', itemId)
+  if (error) throw error
 }
 
 export function getDaysLeft(item: InventoryItem) {

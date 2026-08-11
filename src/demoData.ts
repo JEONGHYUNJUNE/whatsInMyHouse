@@ -29,4 +29,8 @@ export const demoData: AppData = {
   ],
   savedRecipeIds: [],
   notifications: [],
+  shoppingItems: [
+    { id: 'shopping-1', profile_id: 'demo-profile', kitchen_id: 'demo-kitchen', product_name: '달걀', quantity: 1, unit: '판', memo: null, is_checked: false, checked_at: null, created_at: new Date().toISOString() },
+    { id: 'shopping-2', profile_id: 'demo-profile', kitchen_id: 'demo-kitchen', product_name: '대파', quantity: 1, unit: '단', memo: '볶음밥용', is_checked: false, checked_at: null, created_at: new Date().toISOString() },
+  ],
 }

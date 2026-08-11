@@ -120,3 +120,16 @@ export type AppNotification = {
   is_read: boolean
   created_at: string
 }
+
+export type ShoppingListItem = {
+  id: string
+  profile_id: string
+  kitchen_id: string
+  product_name: string
+  quantity: number
+  unit: string
+  memo: string | null
+  is_checked: boolean
+  checked_at: string | null
+  created_at: string
+}
