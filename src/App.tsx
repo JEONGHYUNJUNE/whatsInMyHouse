@@ -318,7 +318,7 @@ function LoginPage({ onSignIn, onSignUp, onDemo }: { onSignIn: (username: string
 
 function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem, onMoveItem, onConsumeItem }: { data: AppData; query: string; setQuery: (v: string) => void; goSearch: () => void; onAdd: (spaceId?: string) => void; onSelectItem: (item: InventoryItem) => void; onMoveItem: (item: InventoryItem) => void; onConsumeItem: (item: InventoryItem) => void }) {
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null)
-  const [spaceView, setSpaceView] = useState<'list' | 'map'>('list')
+  const [spaceView, setSpaceView] = useState<'list' | 'map'>(() => localStorage.getItem(`home-space-view:${data.kitchen.id}`) === 'map' ? 'map' : 'list')
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null)
   const [activeMapId, setActiveMapId] = useState(data.maps[0]?.id || '')
   const spaceDetailRef = useRef<HTMLElement | null>(null)
@@ -333,6 +333,7 @@ function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem, onMo
   useEffect(() => {
     if (!data.maps.some((map) => map.id === activeMapId)) setActiveMapId(data.maps[0]?.id || '')
   }, [data.maps, activeMapId])
+  useEffect(() => { localStorage.setItem(`home-space-view:${data.kitchen.id}`, spaceView) }, [data.kitchen.id, spaceView])
   useEffect(() => {
     if (!selectedSpaceId) return
     const frame = window.requestAnimationFrame(() => {
