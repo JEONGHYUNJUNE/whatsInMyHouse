@@ -38,11 +38,13 @@ function getYoutubeEmbedUrl(value?: string | null) {
 }
 
 function useLatestAppVersion() {
+  const [latestAsset, setLatestAsset] = useState<string | null>(null)
   useEffect(() => {
     if (import.meta.env.DEV) return
     let checking = false
     const check = async () => {
       if (checking || !navigator.onLine) return
+      if (document.querySelector('[data-prevent-app-reload="true"]')) return
       checking = true
       try {
         const response = await fetch(`/index.html?checkedAt=${Date.now()}`, { cache: 'no-store' })
@@ -51,10 +53,7 @@ function useLatestAppVersion() {
         const latestAsset = html.match(/src="([^\"]*\/assets\/index-[^\"]+\.js)"/)?.[1]
         const currentAsset = document.querySelector<HTMLScriptElement>('script[type="module"][src*="/assets/index-"]')?.getAttribute('src')
         if (!latestAsset || !currentAsset || latestAsset === currentAsset) return
-        const nextUrl = new URL(window.location.href)
-        if (nextUrl.searchParams.get('_appVersion') === latestAsset) return
-        nextUrl.searchParams.set('_appVersion', latestAsset)
-        window.location.replace(nextUrl.toString())
+        setLatestAsset(latestAsset)
       } catch {
         // 네트워크가 불안정하면 현재 버전을 유지하고 다음 확인 때 다시 시도합니다.
       } finally { checking = false }
@@ -72,16 +71,26 @@ function useLatestAppVersion() {
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [])
+  const applyUpdate = () => {
+    if (!latestAsset) return
+    const nextUrl = new URL(window.location.href)
+    nextUrl.searchParams.set('_appVersion', latestAsset)
+    window.location.replace(nextUrl.toString())
+  }
+  return { updateAvailable: Boolean(latestAsset), applyUpdate }
 }
 
 function App() {
-  useLatestAppVersion()
+  const { updateAvailable, applyUpdate } = useLatestAppVersion()
   const { session, profile, loading, signInWithCredentials, signUpWithCredentials, signOut, refreshProfile } = useAuth()
   const [demoMode, setDemoMode] = useState(false)
   const [data, setData] = useState<AppData | null>(null)
   const [dataLoading, setDataLoading] = useState(true)
   const [setupError, setSetupError] = useState('')
-  const [tab, setTab] = useState<Tab>('home')
+  const [tab, setTab] = useState<Tab>(() => {
+    const savedTab = localStorage.getItem('last-main-tab') as Tab | null
+    return savedTab && ['home', 'map', 'search', 'consume', 'recipes', 'profile'].includes(savedTab) ? savedTab : 'home'
+  })
   const [addOpen, setAddOpen] = useState(false)
   const [addTargetSpaceId, setAddTargetSpaceId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -113,6 +122,8 @@ function App() {
     if (profile) void refresh()
   }, [profile, demoMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => { localStorage.setItem('last-main-tab', tab) }, [tab])
+
   if (loading) return <FullLoader />
   if (!session && !demoMode) return <LoginPage onSignIn={signInWithCredentials} onSignUp={signUpWithCredentials} onDemo={() => setDemoMode(true)} />
 
@@ -122,6 +133,8 @@ function App() {
         <button className="wordmark" onClick={() => setTab('home')}><span>집</span>에뭐있지</button>
         <div className="top-actions"><button className="notification-trigger" aria-label="알림" onClick={() => setNotificationsOpen(true)}><Bell />{data?.notifications.some((item) => !item.is_read) && <i />}</button><button aria-label="설정" onClick={() => setTab('profile')}><CircleUserRound /></button></div>
       </header>
+
+      {updateAvailable && <div className="app-update-banner"><div><b>새 버전이 준비됐어요</b><span>현재 작업은 그대로 두고 원할 때 업데이트하세요.</span></div><button onClick={applyUpdate}>업데이트</button></div>}
 
       {setupError && <div className="setup-banner">{setupError}</div>}
       {dataLoading ? <FullLoader compact /> : !data ? (
@@ -575,7 +588,12 @@ function ConsumptionScreen({ data, demoMode, onChanged }: { data: AppData; demoM
 
 function RecipeScreen({ data, profileId, demoMode, onChanged }: { data: AppData; profileId: string; demoMode: boolean; onChanged: () => Promise<void> }) {
   const [selected, setSelected] = useState<Recipe | null>(null)
-  const [editing, setEditing] = useState<Recipe | 'new' | null>(null)
+  const [editing, setEditing] = useState<Recipe | 'new' | null>(() => {
+    try {
+      const draft = JSON.parse(localStorage.getItem(`recipe-draft:${profileId}`) || 'null') as { recipeId?: string | null } | null
+      return draft ? draft.recipeId ? data.recipes.find((recipe) => recipe.id === draft.recipeId) || 'new' : 'new' : null
+    } catch { return null }
+  })
   const [view, setView] = useState<'book' | 'recommend'>('book')
   const [query, setQuery] = useState('')
   const recommended = getRecommendedRecipes(data.recipes.filter((recipe) => !recipe.created_by), data.items)
@@ -606,14 +624,25 @@ function RecipeScreen({ data, profileId, demoMode, onChanged }: { data: AppData;
 
 function RecipeEditor({ recipe, profileId, savedRecipeIds, onClose, onSaved }: { recipe: Recipe | null; profileId: string; savedRecipeIds: string[]; onClose: () => void; onSaved: () => Promise<void> }) {
   const personal = recipe?.created_by === profileId
-  const [title, setTitle] = useState(recipe?.title || '')
-  const [summary, setSummary] = useState(recipe?.summary || '')
-  const [youtubeUrl, setYoutubeUrl] = useState(recipe?.youtube_url || '')
-  const [cookMinutes, setCookMinutes] = useState(recipe?.cook_minutes ? String(recipe.cook_minutes) : '')
-  const [difficulty, setDifficulty] = useState(recipe?.difficulty || '쉬움')
-  const [instructions, setInstructions] = useState((recipe?.instructions || []).join('\n'))
-  const [ingredients, setIngredients] = useState((recipe?.ingredients || []).map((item) => ({ name: item.ingredient_name, amount: item.amount || '' })).concat(recipe?.ingredients?.length ? [] : [{ name: '', amount: '' }]))
+  const draftKey = `recipe-draft:${profileId}`
+  const restoredDraft = useMemo(() => {
+    try {
+      const draft = JSON.parse(localStorage.getItem(draftKey) || 'null') as { recipeId?: string | null; title?: string; summary?: string; youtubeUrl?: string; cookMinutes?: string; difficulty?: string; instructions?: string; ingredients?: { name: string; amount: string }[] } | null
+      return draft && (draft.recipeId || null) === (recipe?.id || null) ? draft : null
+    } catch { return null }
+  }, [draftKey, recipe?.id])
+  const [title, setTitle] = useState(restoredDraft?.title ?? recipe?.title ?? '')
+  const [summary, setSummary] = useState(restoredDraft?.summary ?? recipe?.summary ?? '')
+  const [youtubeUrl, setYoutubeUrl] = useState(restoredDraft?.youtubeUrl ?? recipe?.youtube_url ?? '')
+  const [cookMinutes, setCookMinutes] = useState(restoredDraft?.cookMinutes ?? (recipe?.cook_minutes ? String(recipe.cook_minutes) : ''))
+  const [difficulty, setDifficulty] = useState(restoredDraft?.difficulty ?? recipe?.difficulty ?? '쉬움')
+  const [instructions, setInstructions] = useState(restoredDraft?.instructions ?? (recipe?.instructions || []).join('\n'))
+  const [ingredients, setIngredients] = useState(restoredDraft?.ingredients || (recipe?.ingredients || []).map((item) => ({ name: item.ingredient_name, amount: item.amount || '' })).concat(recipe?.ingredients?.length ? [] : [{ name: '', amount: '' }]))
   const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    localStorage.setItem(draftKey, JSON.stringify({ recipeId: recipe?.id || null, title, summary, youtubeUrl, cookMinutes, difficulty, instructions, ingredients }))
+  }, [cookMinutes, difficulty, draftKey, ingredients, instructions, recipe?.id, summary, title, youtubeUrl])
+  const closeEditor = () => { localStorage.removeItem(draftKey); onClose() }
   const save = async () => {
     const cleanIngredients = ingredients.filter((item) => item.name.trim())
     if (!title.trim()) return showAppAlert('레시피 이름을 입력해 주세요.', '필수 정보를 입력해 주세요', 'warning')
@@ -623,12 +652,13 @@ function RecipeEditor({ recipe, profileId, savedRecipeIds, onClose, onSaved }: {
     try {
       await savePersonalRecipe(profileId, personal && recipe ? recipe.id : null, { title, summary, youtubeUrl, cookMinutes: Number(cookMinutes) || null, difficulty, instructions: instructions.split('\n').map((line) => line.trim()).filter(Boolean), ingredients: cleanIngredients })
       if (recipe && !personal && savedRecipeIds.includes(recipe.id)) await toggleSavedRecipe(profileId, recipe.id, true)
+      localStorage.removeItem(draftKey)
       await onSaved()
     } catch (error) { void showAppAlert(error instanceof Error ? error.message : '레시피를 저장하지 못했습니다.', '저장하지 못했어요', 'danger') }
     finally { setBusy(false) }
   }
   const changeIngredient = (index: number, key: 'name' | 'amount', value: string) => setIngredients((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item))
-  return <div className="sheet-backdrop"><section className="recipe-editor"><div className="recipe-editor-head"><button onClick={onClose}><ArrowLeft /></button><div><p>{personal ? '내 레시피 수정' : recipe ? '추천 레시피를 내 레시피로 복사' : '새로운 요리 기록'}</p><h2>{recipe ? '레시피 편집' : '레시피 추가'}</h2></div><button disabled={busy} onClick={() => void save()}>{busy ? <LoaderCircle className="spin" /> : '저장'}</button></div><div className="recipe-editor-form"><label><span>레시피 이름 *</span><input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="예: 우리집 김치볶음밥" /></label><label><span>간단한 설명</span><textarea value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="언제, 어떤 맛으로 먹는 레시피인지 적어보세요." /></label><label><span>유튜브 URL</span><input inputMode="url" value={youtubeUrl} onChange={(event) => setYoutubeUrl(event.target.value)} placeholder="https://youtube.com/watch?v=..." /></label><div className="recipe-editor-row"><label><span>조리 시간</span><input inputMode="numeric" value={cookMinutes} onChange={(event) => setCookMinutes(event.target.value.replace(/\D/g, ''))} placeholder="분" /></label><label><span>난이도</span><select value={difficulty} onChange={(event) => setDifficulty(event.target.value)}><option>쉬움</option><option>보통</option><option>어려움</option></select></label></div><div className="recipe-ingredient-editor"><div><span>재료 *</span><button onClick={() => setIngredients((current) => [...current, { name: '', amount: '' }])}><Plus /> 재료 추가</button></div>{ingredients.map((ingredient, index) => <div className="recipe-ingredient-input" key={index}><input value={ingredient.name} onChange={(event) => changeIngredient(index, 'name', event.target.value)} placeholder="재료명" /><input value={ingredient.amount} onChange={(event) => changeIngredient(index, 'amount', event.target.value)} placeholder="수량/분량" /><button disabled={ingredients.length === 1} onClick={() => setIngredients((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X /></button></div>)}</div><label><span>만드는 법 · 조리 메모</span><textarea className="recipe-notes" value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder={'한 줄에 한 단계씩 적어주세요.\n예) 팬에 기름을 두르고 대파를 볶아요.'} /></label></div></section></div>
+  return <div className="sheet-backdrop"><section className="recipe-editor" data-prevent-app-reload="true"><div className="recipe-editor-head"><button onClick={closeEditor}><ArrowLeft /></button><div><p>{restoredDraft ? '작성 중이던 내용을 복원했어요' : personal ? '내 레시피 수정' : recipe ? '추천 레시피를 내 레시피로 복사' : '새로운 요리 기록'}</p><h2>{recipe ? '레시피 편집' : '레시피 추가'}</h2></div><button disabled={busy} onClick={() => void save()}>{busy ? <LoaderCircle className="spin" /> : '저장'}</button></div><div className="recipe-editor-form"><label><span>레시피 이름 *</span><input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="예: 우리집 김치볶음밥" /></label><label><span>간단한 설명</span><textarea value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="언제, 어떤 맛으로 먹는 레시피인지 적어보세요." /></label><label><span>유튜브 URL</span><input inputMode="url" value={youtubeUrl} onChange={(event) => setYoutubeUrl(event.target.value)} placeholder="https://youtube.com/watch?v=..." /></label><div className="recipe-editor-row"><label><span>조리 시간</span><input inputMode="numeric" value={cookMinutes} onChange={(event) => setCookMinutes(event.target.value.replace(/\D/g, ''))} placeholder="분" /></label><label><span>난이도</span><select value={difficulty} onChange={(event) => setDifficulty(event.target.value)}><option>쉬움</option><option>보통</option><option>어려움</option></select></label></div><div className="recipe-ingredient-editor"><div><span>재료 *</span><button onClick={() => setIngredients((current) => [...current, { name: '', amount: '' }])}><Plus /> 재료 추가</button></div>{ingredients.map((ingredient, index) => <div className="recipe-ingredient-input" key={index}><input value={ingredient.name} onChange={(event) => changeIngredient(index, 'name', event.target.value)} placeholder="재료명" /><input value={ingredient.amount} onChange={(event) => changeIngredient(index, 'amount', event.target.value)} placeholder="수량/분량" /><button disabled={ingredients.length === 1} onClick={() => setIngredients((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X /></button></div>)}</div><label><span>만드는 법 · 조리 메모</span><textarea className="recipe-notes" value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder={'한 줄에 한 단계씩 적어주세요.\n예) 팬에 기름을 두르고 대파를 볶아요.'} /></label></div></section></div>
 }
 
 function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSaved }: { data: AppData; initialSpaceId: string | null; profileId: string; demoMode: boolean; onClose: () => void; onSaved: () => Promise<void> }) {
