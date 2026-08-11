@@ -138,7 +138,22 @@ begin
   on conflict (barcode) do nothing
   returning id into submission_id;
 
-  if submission_id is null then
+  if submission_id is not null then
+    delete from public.notifications notification
+    using public.profiles admin_profile
+    where notification.profile_id = admin_profile.id
+      and admin_profile.is_admin = true
+      and notification.title = '공용 바코드 검토 대기'
+      and notification.is_read = false;
+
+    insert into public.notifications (profile_id, title, message)
+    select
+      admin_profile.id,
+      '공용 바코드 검토 대기',
+      '새 검토대기 ' || (select count(*) from public.barcode_product_submissions) || '건이 있습니다.'
+    from public.profiles admin_profile
+    where admin_profile.is_admin = true;
+  else
     select id into submission_id
     from public.barcode_product_submissions
     where barcode = target_barcode;
