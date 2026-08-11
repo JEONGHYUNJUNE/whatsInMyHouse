@@ -49,3 +49,10 @@ html,body{max-width:100%;overflow-x:hidden}
 
 /* iOS Safari zooms the viewport when a focused form control is below 16px. */
 @media(max-width:700px){input,select,textarea{font-size:16px!important}}
+
+/* Avoid iOS Safari/PWA fixed-position drift while scrolling. Center fixed bars
+   with opposing insets instead of a transformed containing layer. */
+html,body{overflow-x:clip}
+.bottom-nav{left:0;right:0;margin-inline:auto;transform:none}
+.meal-submit-bar{left:12px;right:12px;margin-inline:auto;transform:none}
+@supports(-webkit-touch-callout:none){.bottom-nav{background:#fffdf8;backdrop-filter:none}}
