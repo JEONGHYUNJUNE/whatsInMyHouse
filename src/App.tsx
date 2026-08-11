@@ -191,7 +191,7 @@ function HomeScreen({ data, query, setQuery, goSearch, onAdd, onSelectItem }: { 
   const spaceDetailRef = useRef<HTMLElement | null>(null)
   const urgent = [...data.items].sort((a, b) => getDaysLeft(a) - getDaysLeft(b)).filter((item) => getDaysLeft(item) <= 7)
   const recommendedRecipes = getRecommendedRecipes(data.recipes, data.items)
-  const dailyRecipe = recommendedRecipes.length ? recommendedRecipes[Math.floor(Date.now() / 86400000) % Math.min(3, recommendedRecipes.length)] : undefined
+  const dailyRecipe = recommendedRecipes[0]
   const match = getRecipeMatch(dailyRecipe, data.items)
   const selectedSpace = data.spaces.find((space) => space.id === selectedSpaceId) || null
   const selectedItems = selectedSpace ? data.items.filter((item) => item.storage_space_id === selectedSpace.id) : []
@@ -518,7 +518,7 @@ function RecipeScreen({ data, profileId, demoMode, onChanged }: { data: AppData;
   const [exploring, setExploring] = useState(false)
   const [query, setQuery] = useState('')
   const recommended = getRecommendedRecipes(data.recipes, data.items)
-  const dailyRecipe = recommended.length ? recommended[Math.floor(Date.now() / 86400000) % Math.min(3, recommended.length)] : undefined
+  const dailyRecipe = recommended[0]
   const baseRecipes = savedOnly ? data.recipes.filter((recipe) => data.savedRecipeIds.includes(recipe.id)) : recommended
   const searchedRecipes = baseRecipes.filter((recipe) => `${recipe.title} ${recipe.summary || ''} ${(recipe.ingredients || []).map((ingredient) => ingredient.ingredient_name).join(' ')}`.toLowerCase().includes(query.toLowerCase()))
   const visibleRecipes = exploring || savedOnly ? searchedRecipes : searchedRecipes.slice(0, 4)
@@ -736,14 +736,22 @@ function itemMatchesIngredient(item: InventoryItem, ingredientName: string) {
 }
 function getRecipeMatch(recipe: Recipe | undefined, items: InventoryItem[]) { const ingredients = recipe?.ingredients || []; const matches = ingredients.map((ingredient) => items.find((item) => itemMatchesIngredient(item, ingredient.ingredient_name))); return { total: ingredients.length, have: matches.filter(Boolean).length, urgent: matches.filter((item) => item && getDaysLeft(item) <= 3).length, missing: matches.filter((item) => !item).length } }
 function getRecommendedRecipes(recipes: Recipe[], items: InventoryItem[]) {
+  const daySeed = Math.floor(Date.now() / 86400000)
   return [...recipes].sort((a, b) => {
     const left = getRecipeMatch(a, items)
     const right = getRecipeMatch(b, items)
     const hasIngredientPriority = Number(right.have > 0) - Number(left.have > 0)
     return hasIngredientPriority
-      || (right.have * 3 + right.urgent * 2 - right.missing) - (left.have * 3 + left.urgent * 2 - left.missing)
-      || (a.cook_minutes || 999) - (b.cook_minutes || 999)
+      || dailyRecipeRank(b.id, daySeed, right) - dailyRecipeRank(a.id, daySeed, left)
   })
+}
+
+function dailyRecipeRank(recipeId: string, daySeed: number, match: ReturnType<typeof getRecipeMatch>) {
+  let hash = daySeed ^ 2166136261
+  for (const character of recipeId) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619)
+  const random = (hash >>> 0) / 4294967295
+  const matchRatio = match.total ? match.have / match.total : 0
+  return random * .75 + matchRatio * .15 + Math.min(match.urgent, 2) * .05
 }
 
 export default App
