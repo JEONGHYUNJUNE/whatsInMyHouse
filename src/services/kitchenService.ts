@@ -335,6 +335,7 @@ export async function rejectBarcodeProduct(submissionId: string) {
 }
 
 export async function lookupBarcode(barcode: string, profileId?: string, kitchenId?: string) {
+  const shared = await supabase.from('product_catalog').select('id').eq('barcode', barcode).eq('data_source', 'admin').maybeSingle()
   if (kitchenId) {
     let householdQuery = supabase.from('inventory_items').select('product_name, category, unit, image_path, catalog_product_id').eq('kitchen_id', kitchenId).eq('barcode', barcode)
     if (profileId && profileId !== 'demo-profile') householdQuery = householdQuery.eq('created_by', profileId)
@@ -342,11 +343,11 @@ export async function lookupBarcode(barcode: string, profileId?: string, kitchen
     if (household.data) {
       const storedImage = household.data.image_path || ''
       const imageUrl = /^https?:\/\//i.test(storedImage) ? storedImage : storedImage ? supabase.storage.from('inventory-images').getPublicUrl(storedImage).data.publicUrl : ''
-      return { catalogId: household.data.catalog_product_id || null, name: household.data.product_name, imageUrl, brand: '', category: household.data.category || '', unit: household.data.unit || '개', source: 'household' }
+      return { catalogId: household.data.catalog_product_id || shared.data?.id || null, name: household.data.product_name, imageUrl, brand: '', category: household.data.category || '', unit: household.data.unit || '개', source: 'household', needsSharedReview: !shared.data }
     }
   }
   const local = await supabase.from('product_catalog').select('id, product_name, brand, category, default_unit, image_url, data_source').eq('barcode', barcode).neq('data_source', 'user').maybeSingle()
-  if (local.data) return { catalogId: local.data.id, name: local.data.product_name, imageUrl: local.data.image_url || '', brand: local.data.brand || '', category: local.data.category || '', unit: local.data.default_unit || '개', source: local.data.data_source }
+  if (local.data) return { catalogId: local.data.id, name: local.data.product_name, imageUrl: local.data.image_url || '', brand: local.data.brand || '', category: local.data.category || '', unit: local.data.default_unit || '개', source: local.data.data_source, needsSharedReview: local.data.data_source !== 'admin' }
 
   const { data: foodSafety } = await supabase.functions.invoke('barcode-lookup', { body: { barcode } }).catch(() => ({ data: null }))
   const hasDomesticProduct = Boolean(foodSafety?.found && String(foodSafety.name || '').trim())
@@ -365,5 +366,5 @@ export async function lookupBarcode(barcode: string, profileId?: string, kitchen
     const saved = await rememberCatalogProduct({ barcode, name, brand, category, imageUrl, profileId, source })
     catalogId = saved.id
   }
-  return { catalogId, name, imageUrl, brand, category, unit: '개', source }
+  return { catalogId, name, imageUrl, brand, category, unit: '개', source, needsSharedReview: true }
 }

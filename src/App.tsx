@@ -759,7 +759,7 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
     if (!nextBarcode) return
     setBarcode(nextBarcode)
     setBusy(true)
-    try { const found = await lookupBarcode(nextBarcode, profileId, data.kitchen.id); if (found) { setNeedsSharedReview(false); setCatalogProductId(found.catalogId); setName(found.name); setCategory(found.category); if (/채소|과일/.test(found.category)) { setDeadlineType('purchase'); setRecommendedDays(recommendedFreshDays(found.name, found.category)) } changeUnit(found.unit); setBarcodeImageUrl(found.imageUrl); setPreview(found.imageUrl) } else { setNeedsSharedReview(true); setCatalogProductId(null); void showAppAlert('처음 등록하는 상품이에요. 입력한 상품명은 관리자 검토 후 공용 바코드 정보로 활용될 수 있어요.', '새로운 바코드 상품') } } finally { setBusy(false) }
+    try { const found = await lookupBarcode(nextBarcode, profileId, data.kitchen.id); if (found) { setNeedsSharedReview(found.needsSharedReview); setCatalogProductId(found.catalogId); setName(found.name); setCategory(found.category); if (/채소|과일/.test(found.category)) { setDeadlineType('purchase'); setRecommendedDays(recommendedFreshDays(found.name, found.category)) } changeUnit(found.unit); setBarcodeImageUrl(found.imageUrl); setPreview(found.imageUrl) } else { setNeedsSharedReview(true); setCatalogProductId(null); void showAppAlert('처음 등록하는 상품이에요. 입력한 상품명은 관리자 검토 후 공용 바코드 정보로 활용될 수 있어요.', '새로운 바코드 상품') } } finally { setBusy(false) }
   }
   const submitSharedReview = async (imagePath: string | null) => {
     if (!needsSharedReview || !barcode) return
