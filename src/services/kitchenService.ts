@@ -38,7 +38,7 @@ export async function loadAppData(profileId: string): Promise<AppData> {
       .eq('is_active', true)
       .order('created_at', { ascending: false }),
     supabase.from('saved_recipes').select('recipe_id').eq('profile_id', profileId),
-    supabase.from('notifications').select('id, profile_id, title, message, is_read, created_at').eq('profile_id', profileId).eq('is_read', false).order('created_at', { ascending: false }).limit(30),
+    supabase.from('notifications').select('id, profile_id, notification_type, inventory_item_id, title, message, is_read, created_at').eq('profile_id', profileId).eq('is_read', false).order('created_at', { ascending: false }).limit(30),
   ])
 
   if (mapsResult.error) throw mapsResult.error

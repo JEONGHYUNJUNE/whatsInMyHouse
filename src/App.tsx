@@ -137,6 +137,7 @@ function App() {
   const [addTargetSpaceId, setAddTargetSpaceId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [barcodeAdminOpen, setBarcodeAdminOpen] = useState(false)
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
   const [movingItem, setMovingItem] = useState<InventoryItem | null>(null)
   const [consumingItem, setConsumingItem] = useState<InventoryItem | null>(null)
@@ -175,6 +176,21 @@ function App() {
 
   useEffect(() => { localStorage.setItem('last-main-tab', tab) }, [tab])
 
+  const openNotificationTarget = (notification: AppNotification) => {
+    setNotificationsOpen(false)
+    if (notification.notification_type === 'barcode_review') {
+      setTab('profile')
+      setBarcodeAdminOpen(true)
+      return
+    }
+    if (notification.inventory_item_id && data) {
+      const item = data.items.find((candidate) => candidate.id === notification.inventory_item_id)
+      if (item) { setSelectedItem(item); return }
+    }
+    if (notification.notification_type.includes('recipe')) setTab('recipes')
+    else setTab('home')
+  }
+
   if (loading) return <FullLoader />
   if (!session && !demoMode) return <LoginPage onSignIn={signInWithCredentials} onSignUp={signUpWithCredentials} onDemo={() => setDemoMode(true)} />
 
@@ -199,13 +215,14 @@ function App() {
           {tab === 'search' && <SearchScreen data={data} query={query} setQuery={setQuery} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onSelectItem={setSelectedItem} onChanged={refresh} />}
           {tab === 'consume' && <ConsumptionScreen data={data} demoMode={demoMode} onChanged={refresh} />}
           {tab === 'recipes' && <RecipeScreen data={data} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onChanged={refresh} />}
-          {tab === 'profile' && <ProfileScreen profile={profile} kitchenName={data.kitchen.name} kitchenId={data.kitchen.id} demoMode={demoMode} onExitDemo={() => setDemoMode(false)} onSignOut={signOut} onGoMap={() => setTab('map')} onGoRecipes={() => setTab('recipes')} onOpenNotifications={() => setNotificationsOpen(true)} onChanged={async () => { await refreshProfile(); await refresh() }} />}
+          {tab === 'profile' && <ProfileScreen profile={profile} kitchenName={data.kitchen.name} kitchenId={data.kitchen.id} demoMode={demoMode} onExitDemo={() => setDemoMode(false)} onSignOut={signOut} onGoMap={() => setTab('map')} onGoRecipes={() => setTab('recipes')} onOpenNotifications={() => setNotificationsOpen(true)} onOpenBarcodeAdmin={() => setBarcodeAdminOpen(true)} onChanged={async () => { await refreshProfile(); await refresh() }} />}
         </main>
       )}
 
       {data && (demoMode || data.spaces.length > 0) && <BottomNav tab={tab} setTab={setTab} onAdd={() => { setAddTargetSpaceId(null); setAddOpen(true) }} />}
       {addOpen && data && data.spaces.length > 0 && <AddItemSheet data={data} initialSpaceId={addTargetSpaceId} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onClose={() => setAddOpen(false)} onSaved={async () => { setAddOpen(false); await refresh() }} />}
-      {notificationsOpen && <NotificationsSheet notifications={data?.notifications || []} demoMode={demoMode} profileId={profile?.id || ''} onClose={() => setNotificationsOpen(false)} onRead={refresh} />}
+      {notificationsOpen && <NotificationsSheet notifications={data?.notifications || []} demoMode={demoMode} profileId={profile?.id || ''} onClose={() => setNotificationsOpen(false)} onRead={refresh} onNavigate={openNotificationTarget} />}
+      {barcodeAdminOpen && profile?.is_admin && <BarcodeAdminSheet onClose={() => setBarcodeAdminOpen(false)} />}
       {selectedItem && data && <ItemDetailSheet item={selectedItem} spaces={data.spaces} demoMode={demoMode} onClose={() => setSelectedItem(null)} onSaved={async () => { setSelectedItem(null); await refresh() }} />}
       {movingItem && data && <MoveItemSheet item={movingItem} spaces={data.spaces} onClose={() => setMovingItem(null)} onMove={async (targetId) => { if (demoMode) return showAppAlert('미리보기에서는 실제 이동이 저장되지 않아요.'); await moveInventoryItem(movingItem, targetId, profile?.id || ''); setMovingItem(null); await refresh() }} />}
       {consumingItem && <ConsumeItemSheet item={consumingItem} onClose={() => setConsumingItem(null)} onConsume={async (amount) => { if (demoMode) return showAppAlert('미리보기에서는 실제 변경이 저장되지 않아요.'); await consumeInventoryItems([{ item: consumingItem, amount }]); setConsumingItem(null); await refresh() }} />}
@@ -934,10 +951,9 @@ function SharedRecipeSheet({ shareId, items, onClose, onSaved }: { shareId: stri
   return <RecipeDetail recipe={recipe} items={items} saved={saved} authorName={shared.author_name} onToggleSave={() => void save()} onClose={onClose} />
 }
 
-function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, onSignOut, onGoMap, onGoRecipes, onOpenNotifications, onChanged }: { profile: Profile | null; kitchenName: string; kitchenId: string; demoMode: boolean; onExitDemo: () => void; onSignOut: () => Promise<void>; onGoMap: () => void; onGoRecipes: () => void; onOpenNotifications: () => void; onChanged: () => Promise<void> }) {
+function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, onSignOut, onGoMap, onGoRecipes, onOpenNotifications, onOpenBarcodeAdmin, onChanged }: { profile: Profile | null; kitchenName: string; kitchenId: string; demoMode: boolean; onExitDemo: () => void; onSignOut: () => Promise<void>; onGoMap: () => void; onGoRecipes: () => void; onOpenNotifications: () => void; onOpenBarcodeAdmin: () => void; onChanged: () => Promise<void> }) {
   const nickname = profile?.nickname || '미리보기 사용자'
   const [editing, setEditing] = useState<'profile' | 'kitchen' | null>(null)
-  const [adminOpen, setAdminOpen] = useState(false)
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const openEdit = (target: 'profile' | 'kitchen') => { setEditing(target); setValue(target === 'profile' ? nickname : kitchenName) }
@@ -957,10 +973,9 @@ function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, 
     <div className="page-heading"><div><p>반가워요</p><h1>{nickname}</h1></div></div>
     <div className="profile-card"><CircleUserRound /><div><b>{nickname}</b><span>{demoMode ? '미리보기 모드' : profile?.username ? `@${profile.username} · 아이디 계정` : '로그인 계정'}</span></div>{!demoMode && <button onClick={() => openEdit('profile')}><PenLine /></button>}</div>
     <section className="profile-kitchen"><div><span>내 주방</span><b>{kitchenName}</b></div>{!demoMode && <button onClick={() => openEdit('kitchen')}><PenLine /> 이름 수정</button>}</section>
-    <div className="settings-list"><button onClick={onOpenNotifications}><Bell /><span><b>알림 내역</b><small>소비기한 알림을 확인합니다</small></span><ChevronRight /></button><button onClick={onGoMap}><Map /><span><b>내 주방 관리</b><small>보관공간 이름과 배치를 관리합니다</small></span><ChevronRight /></button><button onClick={onGoRecipes}><BookOpen /><span><b>내 레시피북</b><small>저장한 레시피를 보고 새로운 요리를 탐색합니다</small></span><ChevronRight /></button>{profile?.is_admin && !demoMode && <button className="admin-setting" onClick={() => setAdminOpen(true)}><ShieldCheck /><span><b>공용 바코드 관리</b><small>사용자가 등록한 상품을 검토하고 승인합니다</small></span><ChevronRight /></button>}</div>
+    <div className="settings-list"><button onClick={onOpenNotifications}><Bell /><span><b>알림 내역</b><small>소비기한 알림을 확인합니다</small></span><ChevronRight /></button><button onClick={onGoMap}><Map /><span><b>내 주방 관리</b><small>보관공간 이름과 배치를 관리합니다</small></span><ChevronRight /></button><button onClick={onGoRecipes}><BookOpen /><span><b>내 레시피북</b><small>저장한 레시피를 보고 새로운 요리를 탐색합니다</small></span><ChevronRight /></button>{profile?.is_admin && !demoMode && <button className="admin-setting" onClick={onOpenBarcodeAdmin}><ShieldCheck /><span><b>공용 바코드 관리</b><small>사용자가 등록한 상품을 검토하고 승인합니다</small></span><ChevronRight /></button>}</div>
     <button className="signout" onClick={demoMode ? onExitDemo : onSignOut}><LogOut /> {demoMode ? '로그인 화면으로' : '로그아웃'}</button>
     {editing && <div className="sheet-backdrop"><section className="simple-sheet"><div className="sheet-head"><div><p>{editing === 'profile' ? '마이페이지에 표시됩니다' : '홈 화면에 표시됩니다'}</p><h2>{editing === 'profile' ? '이름 수정' : '주방 이름 수정'}</h2></div><button onClick={() => setEditing(null)}><X /></button></div><label><span>{editing === 'profile' ? '표시 이름' : '주방 이름'}</span><input autoFocus maxLength={30} value={value} onChange={(event) => setValue(event.target.value)} /></label><button className="primary-button" disabled={busy || !value.trim()} onClick={() => void save()}>{busy ? <LoaderCircle className="spin" /> : <Check />} 저장하기</button></section></div>}
-    {adminOpen && <BarcodeAdminSheet onClose={() => setAdminOpen(false)} />}
   </>
 }
 
@@ -1048,19 +1063,19 @@ function BarcodeAdminSheet({ onClose }: { onClose: () => void }) {
   </section></div>
 }
 
-function NotificationsSheet({ notifications, profileId, demoMode, onClose, onRead }: { notifications: AppNotification[]; profileId: string; demoMode: boolean; onClose: () => void; onRead: () => Promise<void> }) {
+function NotificationsSheet({ notifications, profileId, demoMode, onClose, onRead, onNavigate }: { notifications: AppNotification[]; profileId: string; demoMode: boolean; onClose: () => void; onRead: () => Promise<void>; onNavigate: (notification: AppNotification) => void }) {
   const [readingId, setReadingId] = useState<string | null>(null)
   const readAll = async () => {
     if (demoMode || !profileId) return
     await markNotificationsRead(profileId); await onRead()
   }
-  const readOne = async (notificationId: string) => {
+  const readOne = async (notification: AppNotification) => {
     if (demoMode || !profileId || readingId) return
-    setReadingId(notificationId)
-    try { await markNotificationRead(notificationId); await onRead() }
+    setReadingId(notification.id)
+    try { await markNotificationRead(notification.id); onNavigate(notification); await onRead() }
     finally { setReadingId(null) }
   }
-  return <div className="sheet-backdrop"><section className="simple-sheet notifications-sheet"><div className="sheet-head"><div><p>읽지 않은 알림</p><h2>알림</h2></div><button onClick={onClose}><X /></button></div>{notifications.length > 0 && <button className="read-all" onClick={() => void readAll()}><Check /> 모두 확인</button>}<div className="notification-list">{notifications.length ? notifications.map((notification) => <button className="notification-item unread" disabled={readingId !== null} onClick={() => void readOne(notification.id)} key={notification.id}>{readingId === notification.id ? <LoaderCircle className="spin" /> : <Bell />}<div><b>{notification.title}</b><p>{notification.message}</p><small>{new Date(notification.created_at).toLocaleString('ko-KR')} · 눌러서 확인</small></div></button>) : <div className="no-results"><Bell /><p>확인할 새 알림이 없어요.</p></div>}</div></section></div>
+  return <div className="sheet-backdrop"><section className="simple-sheet notifications-sheet"><div className="sheet-head"><div><p>읽지 않은 알림</p><h2>알림</h2></div><button onClick={onClose}><X /></button></div>{notifications.length > 0 && <button className="read-all" onClick={() => void readAll()}><Check /> 모두 확인</button>}<div className="notification-list">{notifications.length ? notifications.map((notification) => <button className="notification-item unread" disabled={readingId !== null} onClick={() => void readOne(notification)} key={notification.id}>{readingId === notification.id ? <LoaderCircle className="spin" /> : <Bell />}<div><b>{notification.title}</b><p>{notification.message}</p><small>{new Date(notification.created_at).toLocaleString('ko-KR')} · 눌러서 이동</small></div><ChevronRight /></button>) : <div className="no-results"><Bell /><p>확인할 새 알림이 없어요.</p></div>}</div></section></div>
 }
 
 function BottomNav({ tab, setTab, onAdd }: { tab: Tab; setTab: (tab: Tab) => void; onAdd: () => void }) {

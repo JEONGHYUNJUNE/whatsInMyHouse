@@ -113,6 +113,8 @@ export type SharedRecipe = {
 export type AppNotification = {
   id: string
   profile_id: string
+  notification_type: string
+  inventory_item_id?: string | null
   title: string
   message: string
   is_read: boolean
