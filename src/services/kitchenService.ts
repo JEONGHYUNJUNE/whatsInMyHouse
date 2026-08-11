@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase'
-import type { AppNotification, BarcodeProductSubmission, InventoryItem, Kitchen, KitchenMap, Recipe, StorageSpace } from '../types'
+import type { AppNotification, BarcodeProductSubmission, InventoryItem, Kitchen, KitchenMap, ProductCatalogItem, Recipe, StorageSpace } from '../types'
 
 export type AppData = {
   kitchen: Kitchen
@@ -215,6 +215,12 @@ export async function loadBarcodeProductSubmissions() {
   return (data || []) as BarcodeProductSubmission[]
 }
 
+export async function loadSharedBarcodeProducts() {
+  const { data, error } = await supabase.from('product_catalog').select('*').eq('data_source', 'admin').order('updated_at', { ascending: false })
+  if (error) throw error
+  return (data || []) as ProductCatalogItem[]
+}
+
 async function archiveBarcodeImage(barcode: string, sourceUrl?: string) {
   if (!sourceUrl?.trim()) return null
 
@@ -253,6 +259,33 @@ export async function approveBarcodeProduct(submissionId: string, barcode: strin
   })
   if (error) throw error
   return { imageWarning }
+}
+
+export async function updateSharedBarcodeProduct(product: ProductCatalogItem, input: { productName: string; brand?: string; category?: string; unit?: string; imageUrl?: string }) {
+  let nextImageUrl: string | null = product.image_url
+  let imageWarning = ''
+  const requestedImageUrl = input.imageUrl?.trim() || ''
+  if (!requestedImageUrl) nextImageUrl = null
+  else if (requestedImageUrl !== product.image_url) {
+    try { nextImageUrl = await archiveBarcodeImage(product.barcode, requestedImageUrl) }
+    catch (error) { imageWarning = error instanceof Error ? error.message : '상품 이미지를 공용 저장소에 보관하지 못했습니다.' }
+  }
+  const { error } = await supabase.from('product_catalog').update({
+    product_name: input.productName.trim(),
+    brand: input.brand?.trim() || null,
+    category: input.category?.trim() || null,
+    default_unit: input.unit || '개',
+    image_url: nextImageUrl,
+    data_source: 'admin',
+  }).eq('id', product.id)
+  if (error) throw error
+  return { imageWarning }
+}
+
+export async function deleteSharedBarcodeProduct(product: ProductCatalogItem) {
+  const { error } = await supabase.from('product_catalog').delete().eq('id', product.id)
+  if (error) throw error
+  await supabase.storage.from('barcode-images').remove([product.barcode]).catch(() => undefined)
 }
 
 export async function rejectBarcodeProduct(submissionId: string) {

@@ -19,6 +19,19 @@ export type BarcodeProductSubmission = {
   created_at: string
 }
 
+export type ProductCatalogItem = {
+  id: string
+  barcode: string
+  product_name: string
+  brand: string | null
+  category: string | null
+  default_unit: string
+  image_url: string | null
+  data_source: string
+  created_at: string
+  updated_at: string
+}
+
 export type Kitchen = {
   id: string
   name: string

@@ -9,12 +9,12 @@ import { useAuth } from './contexts/AuthContext'
 import { demoData } from './demoData'
 import { isSupabaseConfigured } from './lib/supabase'
 import {
-  approveBarcodeProduct, consumeInventoryItems, createInventoryItem, createKitchenMap, createStorageSpace, deleteKitchenMap, deleteStorageSpace, finishInventoryItem, getDaysLeft, loadAppData, loadBarcodeProductSubmissions, lookupBarcode,
+  approveBarcodeProduct, consumeInventoryItems, createInventoryItem, createKitchenMap, createStorageSpace, deleteKitchenMap, deleteSharedBarcodeProduct, deleteStorageSpace, finishInventoryItem, getDaysLeft, loadAppData, loadBarcodeProductSubmissions, loadSharedBarcodeProducts, lookupBarcode,
   markNotificationsRead, moveInventoryItem, rejectBarcodeProduct, submitBarcodeProduct, toggleSavedRecipe, updateKitchenName, updateProfileNickname, updateStorageSpace,
-  updateInventoryItem, updateKitchenMap, updateStorageSpaces, type AppData,
+  updateInventoryItem, updateKitchenMap, updateSharedBarcodeProduct, updateStorageSpaces, type AppData,
 } from './services/kitchenService'
 import { getInventoryImageUrl, uploadInventoryImage } from './services/imageService'
-import type { AppNotification, BarcodeProductSubmission, InventoryItem, KitchenMap as KitchenMapPage, Profile, Recipe, StorageSpace } from './types'
+import type { AppNotification, BarcodeProductSubmission, InventoryItem, KitchenMap as KitchenMapPage, ProductCatalogItem, Profile, Recipe, StorageSpace } from './types'
 import './onboarding.css'
 
 type Tab = 'home' | 'map' | 'search' | 'consume' | 'recipes' | 'profile'
@@ -695,8 +695,12 @@ function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, 
 }
 
 function BarcodeAdminSheet({ onClose }: { onClose: () => void }) {
+  const [adminTab, setAdminTab] = useState<'pending' | 'catalog'>('pending')
   const [submissions, setSubmissions] = useState<BarcodeProductSubmission[]>([])
-  const [selected, setSelected] = useState<BarcodeProductSubmission | null>(null)
+  const [products, setProducts] = useState<ProductCatalogItem[]>([])
+  const [selectedSubmission, setSelectedSubmission] = useState<BarcodeProductSubmission | null>(null)
+  const [selectedProduct, setSelectedProduct] = useState<ProductCatalogItem | null>(null)
+  const [query, setQuery] = useState('')
   const [name, setName] = useState('')
   const [brand, setBrand] = useState('')
   const [category, setCategory] = useState('')
@@ -706,29 +710,55 @@ function BarcodeAdminSheet({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState('')
   const load = async () => {
     setBusy(true); setError('')
-    try { setSubmissions(await loadBarcodeProductSubmissions()) }
-    catch (nextError) { setError((nextError as { message?: string }).message || '검토 목록을 불러오지 못했습니다.') }
+    try { const [nextSubmissions, nextProducts] = await Promise.all([loadBarcodeProductSubmissions(), loadSharedBarcodeProducts()]); setSubmissions(nextSubmissions); setProducts(nextProducts) }
+    catch (nextError) { setError((nextError as { message?: string }).message || '바코드 상품 목록을 불러오지 못했습니다.') }
     finally { setBusy(false) }
   }
   useEffect(() => { void load() }, [])
-  const open = (submission: BarcodeProductSubmission) => {
-    setSelected(submission); setName(submission.product_name); setBrand(submission.brand || ''); setCategory(submission.category || ''); setUnit(submission.default_unit || '개'); setImageUrl(submission.image_url || ''); setError('')
+  const setForm = (item: BarcodeProductSubmission | ProductCatalogItem) => {
+    setName(item.product_name); setBrand(item.brand || ''); setCategory(item.category || ''); setUnit(item.default_unit || '개'); setImageUrl(item.image_url || ''); setError('')
+  }
+  const openSubmission = (submission: BarcodeProductSubmission) => {
+    setSelectedSubmission(submission); setSelectedProduct(null); setForm(submission)
+  }
+  const openProduct = (product: ProductCatalogItem) => {
+    setSelectedProduct(product); setSelectedSubmission(null); setForm(product)
+  }
+  const closeEditor = () => { setSelectedSubmission(null); setSelectedProduct(null); setError('') }
+  const changeTab = (nextTab: 'pending' | 'catalog') => {
+    setAdminTab(nextTab); setQuery(''); closeEditor()
   }
   const approve = async () => {
-    if (!selected || !name.trim()) return
+    if (!selectedSubmission || !name.trim()) return
     setBusy(true); setError('')
-    try { const result = await approveBarcodeProduct(selected.id, selected.barcode, { productName: name.trim(), brand: brand.trim(), category: category.trim(), unit, imageUrl: imageUrl.trim() }); setSelected(null); await load(); if (result.imageWarning) setError(`상품은 승인했지만 사진은 저장하지 못했어요: ${result.imageWarning}`) }
+    try { const result = await approveBarcodeProduct(selectedSubmission.id, selectedSubmission.barcode, { productName: name.trim(), brand: brand.trim(), category: category.trim(), unit, imageUrl: imageUrl.trim() }); closeEditor(); await load(); if (result.imageWarning) setError(`상품은 승인했지만 사진은 저장하지 못했어요: ${result.imageWarning}`) }
     catch (nextError) { setError((nextError as { message?: string }).message || '상품을 승인하지 못했습니다.'); setBusy(false) }
   }
   const reject = async () => {
-    if (!selected || !window.confirm('이 검토 요청을 삭제할까요? 사용자의 개인 상품은 삭제되지 않습니다.')) return
+    if (!selectedSubmission || !window.confirm('이 검토 요청을 삭제할까요? 사용자의 개인 상품은 삭제되지 않습니다.')) return
     setBusy(true); setError('')
-    try { await rejectBarcodeProduct(selected.id); setSelected(null); await load() }
+    try { await rejectBarcodeProduct(selectedSubmission.id); closeEditor(); await load() }
     catch (nextError) { setError((nextError as { message?: string }).message || '검토 요청을 삭제하지 못했습니다.'); setBusy(false) }
   }
-  return <div className="sheet-backdrop"><section className="barcode-admin-sheet"><div className="sheet-head"><div><p>관리자 전용 · {submissions.length}건 대기</p><h2>공용 바코드 관리</h2></div><button onClick={onClose}><X /></button></div>
+  const saveProduct = async () => {
+    if (!selectedProduct || !name.trim()) return
+    setBusy(true); setError('')
+    try { const result = await updateSharedBarcodeProduct(selectedProduct, { productName: name, brand, category, unit, imageUrl }); closeEditor(); await load(); if (result.imageWarning) setError(`정보는 수정했지만 새 사진은 저장하지 못했어요: ${result.imageWarning}`) }
+    catch (nextError) { setError((nextError as { message?: string }).message || '공용 상품을 수정하지 못했습니다.'); setBusy(false) }
+  }
+  const deleteProduct = async () => {
+    if (!selectedProduct || !window.confirm('공용 상품을 삭제할까요? 사용자별 보관 식재료 기록은 유지됩니다.')) return
+    setBusy(true); setError('')
+    try { await deleteSharedBarcodeProduct(selectedProduct); closeEditor(); await load() }
+    catch (nextError) { setError((nextError as { message?: string }).message || '공용 상품을 삭제하지 못했습니다.'); setBusy(false) }
+  }
+  const normalizedQuery = query.trim().toLowerCase()
+  const visibleProducts = products.filter((product) => !normalizedQuery || `${product.barcode} ${product.product_name} ${product.brand || ''} ${product.category || ''}`.toLowerCase().includes(normalizedQuery))
+  const editingItem = selectedSubmission || selectedProduct
+  return <div className="sheet-backdrop barcode-admin-backdrop"><section className="barcode-admin-sheet"><div className="sheet-head"><div><p>관리자 전용 · 검토 {submissions.length}건 · 공용 {products.length}개</p><h2>공용 바코드 관리</h2></div><button onClick={onClose}><X /></button></div>
+    <div className="admin-tabs" role="tablist"><button role="tab" aria-selected={adminTab === 'pending'} className={adminTab === 'pending' ? 'active' : ''} onClick={() => changeTab('pending')}>검토 대기 <span>{submissions.length}</span></button><button role="tab" aria-selected={adminTab === 'catalog'} className={adminTab === 'catalog' ? 'active' : ''} onClick={() => changeTab('catalog')}>공용 상품 <span>{products.length}</span></button></div>
     {error && <p className="form-error">{error}</p>}
-    {busy && !selected ? <div className="admin-loading"><LoaderCircle className="spin" /> 불러오는 중</div> : selected ? <><button className="admin-back" onClick={() => setSelected(null)}>← 목록으로</button><div className="admin-product-preview">{imageUrl ? <img src={imageUrl} alt="" /> : <Package />}<div><b>{selected.barcode}</b><span>{new Date(selected.created_at).toLocaleString('ko-KR')}</span></div></div><div className="form-grid"><label className="full"><span>공용 상품명 *</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} /></label><label><span>브랜드/제조사</span><input value={brand} onChange={(event) => setBrand(event.target.value)} /></label><CategoryField value={category} onChange={setCategory} /><label><span>기본 단위</span><select value={unit} onChange={(event) => setUnit(event.target.value)}><option>개</option><option>팩</option><option>병</option><option>봉</option><option>g</option><option>kg</option><option>모</option></select></label><label className="full"><span>상품 이미지 URL</span><input value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} /></label></div><div className="admin-review-actions"><button disabled={busy} onClick={() => void reject()}><Trash2 /> 삭제</button><button disabled={busy || !name.trim()} onClick={() => void approve()}>{busy ? <LoaderCircle className="spin" /> : <ShieldCheck />} 수정 내용으로 승인</button></div></> : submissions.length ? <div className="admin-submission-list">{submissions.map((submission) => <button onClick={() => open(submission)} key={submission.id}>{submission.image_url ? <img src={submission.image_url} alt="" /> : <Package />}<span><b>{submission.product_name}</b><small>{submission.barcode} · {submission.category || '분류 없음'}</small></span><ChevronRight /></button>)}</div> : <div className="no-results"><ShieldCheck /><p>검토할 신규 상품이 없습니다.</p></div>}
+    {busy && !editingItem ? <div className="admin-loading"><LoaderCircle className="spin" /> 불러오는 중</div> : editingItem ? <><button className="admin-back" onClick={closeEditor}>← 목록으로</button><div className="admin-product-preview">{imageUrl ? <img src={imageUrl} alt="" /> : <Package />}<div><b>{editingItem.barcode}</b><span>{selectedSubmission ? new Date(selectedSubmission.created_at).toLocaleString('ko-KR') : '승인된 공용 상품'}</span></div></div><div className="form-grid"><label className="full"><span>공용 상품명 *</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} /></label><label><span>브랜드/제조사</span><input value={brand} onChange={(event) => setBrand(event.target.value)} /></label><CategoryField value={category} onChange={setCategory} /><label><span>기본 단위</span><select value={unit} onChange={(event) => setUnit(event.target.value)}><option>개</option><option>팩</option><option>병</option><option>봉</option><option>g</option><option>kg</option><option>모</option></select></label><label className="full"><span>상품 이미지 URL</span><input value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} /></label></div><div className="admin-review-actions"><button disabled={busy} onClick={() => void (selectedSubmission ? reject() : deleteProduct())}><Trash2 /> 삭제</button><button disabled={busy || !name.trim()} onClick={() => void (selectedSubmission ? approve() : saveProduct())}>{busy ? <LoaderCircle className="spin" /> : selectedSubmission ? <ShieldCheck /> : <Check />} {selectedSubmission ? '수정 내용으로 승인' : '수정 저장'}</button></div></> : adminTab === 'pending' ? submissions.length ? <div className="admin-submission-list">{submissions.map((submission) => <button onClick={() => openSubmission(submission)} key={submission.id}>{submission.image_url ? <img src={submission.image_url} alt="" /> : <Package />}<span><b>{submission.product_name}</b><small>{submission.barcode} · {submission.category || '분류 없음'}</small></span><ChevronRight /></button>)}</div> : <div className="no-results"><ShieldCheck /><p>검토할 신규 상품이 없습니다.</p></div> : <><label className="admin-catalog-search"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="바코드, 상품명, 브랜드, 카테고리 검색" />{query && <button onClick={() => setQuery('')}><X /></button>}</label>{visibleProducts.length ? <div className="admin-submission-list admin-catalog-list">{visibleProducts.map((product) => <button onClick={() => openProduct(product)} key={product.id}>{product.image_url ? <img src={product.image_url} alt="" /> : <Package />}<span><b>{product.product_name}</b><small>{product.barcode} · {product.brand || product.category || '추가 정보 없음'}</small></span><ChevronRight /></button>)}</div> : <div className="no-results"><Search /><p>{query ? '검색 결과가 없습니다.' : '승인된 공용 상품이 없습니다.'}</p></div>}</>}
   </section></div>
 }
 
