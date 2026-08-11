@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase'
-import type { AppNotification, InventoryItem, Kitchen, KitchenMap, Recipe, StorageSpace } from '../types'
+import type { AppNotification, BarcodeProductSubmission, InventoryItem, Kitchen, KitchenMap, Recipe, StorageSpace } from '../types'
 
 export type AppData = {
   kitchen: Kitchen
@@ -194,23 +194,70 @@ export async function deleteStorageSpace(spaceId: string) {
 export async function rememberCatalogProduct(input: { barcode: string; name: string; brand?: string; category?: string; unit?: string; imageUrl?: string; profileId?: string; source: 'open_food_facts' | 'foodsafety_korea' }) {
   const existing = await supabase.from('product_catalog').select('id, product_name, brand, category, default_unit, image_url, data_source').eq('barcode', input.barcode).neq('data_source', 'user').maybeSingle()
   if (existing.data) return existing.data
-  const inserted = await supabase.from('product_catalog').insert({
-    barcode: input.barcode,
-    product_name: input.name,
-    brand: input.brand || null,
-    category: input.category || null,
-    default_unit: input.unit || '개',
-    image_url: input.imageUrl || null,
-    data_source: input.source,
-    created_by: input.profileId && input.profileId !== 'demo-profile' ? input.profileId : null,
-  }).select('id, product_name, brand, category, default_unit, image_url, data_source').single()
-  if (inserted.error?.code === '23505') {
-    const retry = await supabase.from('product_catalog').select('id, product_name, brand, category, default_unit, image_url, data_source').eq('barcode', input.barcode).single()
-    if (retry.error) throw retry.error
-    return retry.data
+  return { id: null, product_name: input.name, brand: input.brand || null, category: input.category || null, default_unit: input.unit || '개', image_url: input.imageUrl || null, data_source: input.source }
+}
+
+export async function submitBarcodeProduct(input: { barcode: string; productName: string; brand?: string; category?: string; unit?: string; imageUrl?: string }) {
+  const { error } = await supabase.rpc('submit_barcode_product', {
+    target_barcode: input.barcode,
+    target_product_name: input.productName,
+    target_brand: input.brand || null,
+    target_category: input.category || null,
+    target_default_unit: input.unit || '개',
+    target_image_url: input.imageUrl || null,
+  })
+  if (error) throw error
+}
+
+export async function loadBarcodeProductSubmissions() {
+  const { data, error } = await supabase.from('barcode_product_submissions').select('*').order('created_at', { ascending: false })
+  if (error) throw error
+  return (data || []) as BarcodeProductSubmission[]
+}
+
+async function archiveBarcodeImage(barcode: string, sourceUrl?: string) {
+  if (!sourceUrl?.trim()) return null
+
+  const response = await fetch(sourceUrl.trim())
+  if (!response.ok) throw new Error('상품 이미지를 불러오지 못했습니다.')
+  const contentType = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() || ''
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(contentType)) throw new Error('지원하지 않는 상품 이미지 형식입니다.')
+  const blob = await response.blob()
+  if (blob.size > 5 * 1024 * 1024) throw new Error('상품 이미지는 5MB 이하만 보관할 수 있습니다.')
+
+  const path = barcode
+  const { error } = await supabase.storage.from('barcode-images').upload(path, blob, {
+    contentType,
+    cacheControl: '31536000',
+    upsert: true,
+  })
+  if (error) throw error
+  return supabase.storage.from('barcode-images').getPublicUrl(path).data.publicUrl
+}
+
+export async function approveBarcodeProduct(submissionId: string, barcode: string, input: { productName: string; brand?: string; category?: string; unit?: string; imageUrl?: string }) {
+  let archivedImageUrl: string | null = null
+  let imageWarning = ''
+  try {
+    archivedImageUrl = await archiveBarcodeImage(barcode, input.imageUrl)
+  } catch (error) {
+    imageWarning = error instanceof Error ? error.message : '상품 이미지를 공용 저장소에 보관하지 못했습니다.'
   }
-  if (inserted.error) throw inserted.error
-  return inserted.data
+  const { error } = await supabase.rpc('approve_barcode_product', {
+    target_submission_id: submissionId,
+    approved_product_name: input.productName,
+    approved_brand: input.brand || null,
+    approved_category: input.category || null,
+    approved_default_unit: input.unit || '개',
+    approved_image_url: archivedImageUrl,
+  })
+  if (error) throw error
+  return { imageWarning }
+}
+
+export async function rejectBarcodeProduct(submissionId: string) {
+  const { error } = await supabase.rpc('reject_barcode_product', { target_submission_id: submissionId })
+  if (error) throw error
 }
 
 export async function lookupBarcode(barcode: string, profileId?: string, kitchenId?: string) {

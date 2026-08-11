@@ -4,6 +4,19 @@ export type Profile = {
   username?: string | null
   nickname: string
   avatar_url: string | null
+  is_admin: boolean
+}
+
+export type BarcodeProductSubmission = {
+  id: string
+  barcode: string
+  product_name: string
+  brand: string | null
+  category: string | null
+  default_unit: string
+  image_url: string | null
+  submitted_by: string
+  created_at: string
 }
 
 export type Kitchen = {

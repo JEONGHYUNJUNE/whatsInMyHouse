@@ -80,6 +80,12 @@ supabase/migrations/20260811_007_add_korean_recipe_collection.sql
 supabase/migrations/20260811_008_multiple_kitchen_maps.sql
 ```
 
+사용자별 바코드 기억과 관리자 승인 공용 상품 DB를 사용하려면 다음 마이그레이션을 실행합니다. 앱 소유자 계정 `hjune24`가 최초 관리자로 지정되며, 이후 관리자 변경은 Supabase SQL Editor에서만 수행합니다.
+
+```text
+supabase/migrations/20260811_009_shared_barcode_moderation.sql
+```
+
 SQL 실행 후 Supabase Dashboard에서 다음 Hook을 활성화합니다.
 
 ```text

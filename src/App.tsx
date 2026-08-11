@@ -3,18 +3,18 @@ import type { IScannerControls } from '@zxing/browser'
 import {
   Apple, Beef, Bell, BookOpen, Box, Camera, Carrot, Check, ChevronRight, CircleUserRound, Cookie, CookingPot, CupSoda,
   Clock3, DoorOpen, Egg, Fish, Home, LayoutGrid, List, LoaderCircle, LogOut, Map, Milk, Package, PackageCheck, PenLine,
-  PanelsTopLeft, Plus, Refrigerator, ScanLine, Search, Settings2, Snowflake, Sparkles, UtensilsCrossed, Wheat, X,
+  PanelsTopLeft, Plus, Refrigerator, ScanLine, Search, Settings2, ShieldCheck, Snowflake, Sparkles, Trash2, UtensilsCrossed, Wheat, X,
 } from 'lucide-react'
 import { useAuth } from './contexts/AuthContext'
 import { demoData } from './demoData'
 import { isSupabaseConfigured } from './lib/supabase'
 import {
-  consumeInventoryItems, createInventoryItem, createKitchenMap, createStorageSpace, deleteKitchenMap, deleteStorageSpace, finishInventoryItem, getDaysLeft, loadAppData, lookupBarcode,
-  markNotificationsRead, moveInventoryItem, toggleSavedRecipe, updateKitchenName, updateProfileNickname, updateStorageSpace,
+  approveBarcodeProduct, consumeInventoryItems, createInventoryItem, createKitchenMap, createStorageSpace, deleteKitchenMap, deleteStorageSpace, finishInventoryItem, getDaysLeft, loadAppData, loadBarcodeProductSubmissions, lookupBarcode,
+  markNotificationsRead, moveInventoryItem, rejectBarcodeProduct, submitBarcodeProduct, toggleSavedRecipe, updateKitchenName, updateProfileNickname, updateStorageSpace,
   updateInventoryItem, updateKitchenMap, updateStorageSpaces, type AppData,
 } from './services/kitchenService'
 import { getInventoryImageUrl, uploadInventoryImage } from './services/imageService'
-import type { AppNotification, InventoryItem, KitchenMap as KitchenMapPage, Profile, Recipe, StorageSpace } from './types'
+import type { AppNotification, BarcodeProductSubmission, InventoryItem, KitchenMap as KitchenMapPage, Profile, Recipe, StorageSpace } from './types'
 import './onboarding.css'
 
 type Tab = 'home' | 'map' | 'search' | 'consume' | 'recipes' | 'profile'
@@ -568,6 +568,7 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
   const [preview, setPreview] = useState('')
   const [barcodeImageUrl, setBarcodeImageUrl] = useState('')
   const [catalogProductId, setCatalogProductId] = useState<string | null>(null)
+  const [needsSharedReview, setNeedsSharedReview] = useState(false)
   const quantityStep = unit === 'g' ? 100 : unit === 'kg' ? 0.1 : 1
   const changeQuantity = (direction: 1 | -1) => setQuantity((current) => String(Math.max(quantityStep, Number((Number(current) + quantityStep * direction).toFixed(2)))))
   const changeUnit = (nextUnit: string) => {
@@ -580,7 +581,7 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
     if (!nextBarcode) return
     setBarcode(nextBarcode)
     setBusy(true)
-    try { const found = await lookupBarcode(nextBarcode, profileId, data.kitchen.id); if (found) { setCatalogProductId(found.catalogId); setName(found.name); setCategory(found.category); changeUnit(found.unit); setBarcodeImageUrl(found.imageUrl); setPreview(found.imageUrl) } else { setCatalogProductId(null); alert('처음 등록하는 상품이에요. 상품명을 한 번 입력하면 다음부터 우리 주방에서 자동으로 찾아드려요.') } } finally { setBusy(false) }
+    try { const found = await lookupBarcode(nextBarcode, profileId, data.kitchen.id); if (found) { setNeedsSharedReview(false); setCatalogProductId(found.catalogId); setName(found.name); setCategory(found.category); changeUnit(found.unit); setBarcodeImageUrl(found.imageUrl); setPreview(found.imageUrl) } else { setNeedsSharedReview(true); setCatalogProductId(null); alert('처음 등록하는 상품이에요. 입력한 상품명은 관리자 검토 후 공용 바코드 정보로 활용될 수 있어요.') } } finally { setBusy(false) }
   }
   const save = async () => {
     if (!name.trim() || !spaceId) return alert('상품명과 보관 위치는 필수입니다.')
@@ -589,6 +590,10 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
     try {
       const imagePath = file ? await uploadInventoryImage(file, data.kitchen.id, profileId) : barcodeImageUrl || null
       await createInventoryItem({ kitchen_id: data.kitchen.id, storage_space_id: spaceId, catalog_product_id: catalogProductId, created_by: profileId, product_name: name.trim(), alias: alias.trim() || null, barcode: barcode || null, image_path: imagePath, category: category || null, quantity: Number(quantity) || quantityStep, unit, purchased_at: new Date().toISOString().slice(0, 10), opened_at: null, expiration_date: deadlineType === 'expiration' ? deadlineDate || null : null, use_by_date: deadlineType === 'use_by' ? deadlineDate || null : null, recommended_use_date: null, memo: memo.trim() || null, registration_method: mode })
+      if (needsSharedReview && barcode) {
+        try { await submitBarcodeProduct({ barcode, productName: name.trim(), category, unit, imageUrl: getInventoryImageUrl(imagePath) }) }
+        catch (submissionError) { console.warn('공용 바코드 검토 요청 실패:', submissionError) }
+      }
       await onSaved()
     } catch (error) { alert(error instanceof Error ? error.message : '저장하지 못했습니다.') } finally { setBusy(false) }
   }
@@ -662,6 +667,7 @@ function RecipeDetail({ recipe, items, saved, onToggleSave, onClose }: { recipe:
 function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, onSignOut, onGoMap, onGoRecipes, onOpenNotifications, onChanged }: { profile: Profile | null; kitchenName: string; kitchenId: string; demoMode: boolean; onExitDemo: () => void; onSignOut: () => Promise<void>; onGoMap: () => void; onGoRecipes: () => void; onOpenNotifications: () => void; onChanged: () => Promise<void> }) {
   const nickname = profile?.nickname || '미리보기 사용자'
   const [editing, setEditing] = useState<'profile' | 'kitchen' | null>(null)
+  const [adminOpen, setAdminOpen] = useState(false)
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const openEdit = (target: 'profile' | 'kitchen') => { setEditing(target); setValue(target === 'profile' ? nickname : kitchenName) }
@@ -681,10 +687,49 @@ function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, 
     <div className="page-heading"><div><p>반가워요</p><h1>{nickname}</h1></div></div>
     <div className="profile-card"><CircleUserRound /><div><b>{nickname}</b><span>{demoMode ? '미리보기 모드' : profile?.username ? `@${profile.username} · 아이디 계정` : '로그인 계정'}</span></div>{!demoMode && <button onClick={() => openEdit('profile')}><PenLine /></button>}</div>
     <section className="profile-kitchen"><div><span>내 주방</span><b>{kitchenName}</b></div>{!demoMode && <button onClick={() => openEdit('kitchen')}><PenLine /> 이름 수정</button>}</section>
-    <div className="settings-list"><button onClick={onOpenNotifications}><Bell /><span><b>알림 내역</b><small>소비기한 알림을 확인합니다</small></span><ChevronRight /></button><button onClick={onGoMap}><Map /><span><b>내 주방 관리</b><small>보관공간 이름과 배치를 관리합니다</small></span><ChevronRight /></button><button onClick={onGoRecipes}><BookOpen /><span><b>내 레시피북</b><small>저장한 레시피를 보고 새로운 요리를 탐색합니다</small></span><ChevronRight /></button></div>
+    <div className="settings-list"><button onClick={onOpenNotifications}><Bell /><span><b>알림 내역</b><small>소비기한 알림을 확인합니다</small></span><ChevronRight /></button><button onClick={onGoMap}><Map /><span><b>내 주방 관리</b><small>보관공간 이름과 배치를 관리합니다</small></span><ChevronRight /></button><button onClick={onGoRecipes}><BookOpen /><span><b>내 레시피북</b><small>저장한 레시피를 보고 새로운 요리를 탐색합니다</small></span><ChevronRight /></button>{profile?.is_admin && !demoMode && <button className="admin-setting" onClick={() => setAdminOpen(true)}><ShieldCheck /><span><b>공용 바코드 관리</b><small>사용자가 등록한 상품을 검토하고 승인합니다</small></span><ChevronRight /></button>}</div>
     <button className="signout" onClick={demoMode ? onExitDemo : onSignOut}><LogOut /> {demoMode ? '로그인 화면으로' : '로그아웃'}</button>
     {editing && <div className="sheet-backdrop"><section className="simple-sheet"><div className="sheet-head"><div><p>{editing === 'profile' ? '마이페이지에 표시됩니다' : '홈 화면에 표시됩니다'}</p><h2>{editing === 'profile' ? '이름 수정' : '주방 이름 수정'}</h2></div><button onClick={() => setEditing(null)}><X /></button></div><label><span>{editing === 'profile' ? '표시 이름' : '주방 이름'}</span><input autoFocus maxLength={30} value={value} onChange={(event) => setValue(event.target.value)} /></label><button className="primary-button" disabled={busy || !value.trim()} onClick={() => void save()}>{busy ? <LoaderCircle className="spin" /> : <Check />} 저장하기</button></section></div>}
+    {adminOpen && <BarcodeAdminSheet onClose={() => setAdminOpen(false)} />}
   </>
+}
+
+function BarcodeAdminSheet({ onClose }: { onClose: () => void }) {
+  const [submissions, setSubmissions] = useState<BarcodeProductSubmission[]>([])
+  const [selected, setSelected] = useState<BarcodeProductSubmission | null>(null)
+  const [name, setName] = useState('')
+  const [brand, setBrand] = useState('')
+  const [category, setCategory] = useState('')
+  const [unit, setUnit] = useState('개')
+  const [imageUrl, setImageUrl] = useState('')
+  const [busy, setBusy] = useState(true)
+  const [error, setError] = useState('')
+  const load = async () => {
+    setBusy(true); setError('')
+    try { setSubmissions(await loadBarcodeProductSubmissions()) }
+    catch (nextError) { setError((nextError as { message?: string }).message || '검토 목록을 불러오지 못했습니다.') }
+    finally { setBusy(false) }
+  }
+  useEffect(() => { void load() }, [])
+  const open = (submission: BarcodeProductSubmission) => {
+    setSelected(submission); setName(submission.product_name); setBrand(submission.brand || ''); setCategory(submission.category || ''); setUnit(submission.default_unit || '개'); setImageUrl(submission.image_url || ''); setError('')
+  }
+  const approve = async () => {
+    if (!selected || !name.trim()) return
+    setBusy(true); setError('')
+    try { const result = await approveBarcodeProduct(selected.id, selected.barcode, { productName: name.trim(), brand: brand.trim(), category: category.trim(), unit, imageUrl: imageUrl.trim() }); setSelected(null); await load(); if (result.imageWarning) setError(`상품은 승인했지만 사진은 저장하지 못했어요: ${result.imageWarning}`) }
+    catch (nextError) { setError((nextError as { message?: string }).message || '상품을 승인하지 못했습니다.'); setBusy(false) }
+  }
+  const reject = async () => {
+    if (!selected || !window.confirm('이 검토 요청을 삭제할까요? 사용자의 개인 상품은 삭제되지 않습니다.')) return
+    setBusy(true); setError('')
+    try { await rejectBarcodeProduct(selected.id); setSelected(null); await load() }
+    catch (nextError) { setError((nextError as { message?: string }).message || '검토 요청을 삭제하지 못했습니다.'); setBusy(false) }
+  }
+  return <div className="sheet-backdrop"><section className="barcode-admin-sheet"><div className="sheet-head"><div><p>관리자 전용 · {submissions.length}건 대기</p><h2>공용 바코드 관리</h2></div><button onClick={onClose}><X /></button></div>
+    {error && <p className="form-error">{error}</p>}
+    {busy && !selected ? <div className="admin-loading"><LoaderCircle className="spin" /> 불러오는 중</div> : selected ? <><button className="admin-back" onClick={() => setSelected(null)}>← 목록으로</button><div className="admin-product-preview">{imageUrl ? <img src={imageUrl} alt="" /> : <Package />}<div><b>{selected.barcode}</b><span>{new Date(selected.created_at).toLocaleString('ko-KR')}</span></div></div><div className="form-grid"><label className="full"><span>공용 상품명 *</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} /></label><label><span>브랜드/제조사</span><input value={brand} onChange={(event) => setBrand(event.target.value)} /></label><CategoryField value={category} onChange={setCategory} /><label><span>기본 단위</span><select value={unit} onChange={(event) => setUnit(event.target.value)}><option>개</option><option>팩</option><option>병</option><option>봉</option><option>g</option><option>kg</option><option>모</option></select></label><label className="full"><span>상품 이미지 URL</span><input value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} /></label></div><div className="admin-review-actions"><button disabled={busy} onClick={() => void reject()}><Trash2 /> 삭제</button><button disabled={busy || !name.trim()} onClick={() => void approve()}>{busy ? <LoaderCircle className="spin" /> : <ShieldCheck />} 수정 내용으로 승인</button></div></> : submissions.length ? <div className="admin-submission-list">{submissions.map((submission) => <button onClick={() => open(submission)} key={submission.id}>{submission.image_url ? <img src={submission.image_url} alt="" /> : <Package />}<span><b>{submission.product_name}</b><small>{submission.barcode} · {submission.category || '분류 없음'}</small></span><ChevronRight /></button>)}</div> : <div className="no-results"><ShieldCheck /><p>검토할 신규 상품이 없습니다.</p></div>}
+  </section></div>
 }
 
 function NotificationsSheet({ notifications, profileId, demoMode, onClose, onRead }: { notifications: AppNotification[]; profileId: string; demoMode: boolean; onClose: () => void; onRead: () => Promise<void> }) {
