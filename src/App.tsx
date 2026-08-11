@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { IScannerControls } from '@zxing/browser'
 import {
-  Apple, Beef, Bell, BookOpen, Box, Camera, Carrot, Check, ChevronRight, CircleUserRound, Cookie, CookingPot, CupSoda,
+  Apple, ArrowLeft, Beef, Bell, BookOpen, Box, Camera, Carrot, Check, ChevronRight, CircleUserRound, Cookie, CookingPot, CupSoda,
   Clock3, DoorOpen, Egg, Fish, Home, LayoutGrid, List, LoaderCircle, LogOut, Map, Milk, Package, PackageCheck, PenLine,
   PanelsTopLeft, Plus, Refrigerator, ScanLine, Search, Settings2, ShieldCheck, Snowflake, Sparkles, Trash2, UtensilsCrossed, Wheat, X,
 } from 'lucide-react'
 import { useAuth } from './contexts/AuthContext'
+import { showAppAlert, showAppConfirm } from './contexts/AppDialogContext'
 import { demoData } from './demoData'
 import { isSupabaseConfigured } from './lib/supabase'
 import {
-  approveBarcodeProduct, consumeInventoryItems, createInventoryItem, createKitchenMap, createStorageSpace, deleteKitchenMap, deleteSharedBarcodeProduct, deleteStorageSpace, finishInventoryItem, getDaysLeft, loadAppData, loadBarcodeProductSubmissions, loadSharedBarcodeProducts, lookupBarcode,
+  approveBarcodeProduct, consumeInventoryItems, createInventoryItem, createKitchenMap, createStorageSpace, deleteKitchenMap, deletePersonalRecipe, deleteSharedBarcodeProduct, deleteStorageSpace, finishInventoryItem, getDaysLeft, loadAppData, loadBarcodeProductSubmissions, loadSharedBarcodeProducts, lookupBarcode,
   markNotificationsRead, moveInventoryItem, rejectBarcodeProduct, submitBarcodeProduct, toggleSavedRecipe, updateKitchenName, updateProfileNickname, updateStorageSpace,
-  updateInventoryItem, updateKitchenMap, updateSharedBarcodeProduct, updateStorageSpaces, type AppData,
+  savePersonalRecipe, updateInventoryItem, updateKitchenMap, updateSharedBarcodeProduct, updateStorageSpaces, type AppData,
 } from './services/kitchenService'
 import { getInventoryImageUrl, uploadInventoryImage } from './services/imageService'
 import type { AppNotification, BarcodeProductSubmission, InventoryItem, KitchenMap as KitchenMapPage, ProductCatalogItem, Profile, Recipe, StorageSpace } from './types'
@@ -25,6 +26,16 @@ const spaceIcons: Record<string, React.ReactNode> = {
 }
 
 const categoryOptions = ['채소', '과일', '육류', '수산물', '달걀', '유제품', '곡류/면', '음료', '조미료/소스', '간식', '냉동식품', '기타']
+
+function getYoutubeEmbedUrl(value?: string | null) {
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    const host = url.hostname.replace(/^www\./, '')
+    const videoId = host === 'youtu.be' ? url.pathname.slice(1).split('/')[0] : ['youtube.com', 'm.youtube.com'].includes(host) ? url.searchParams.get('v') || url.pathname.match(/^\/(?:shorts|embed)\/([^/?]+)/)?.[1] : null
+    return videoId && /^[\w-]{6,}$/.test(videoId) ? `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0` : null
+  } catch { return null }
+}
 
 function useLatestAppVersion() {
   useEffect(() => {
@@ -348,47 +359,47 @@ function KitchenMap({ data, demoMode, onSelectItem, onAdd, onChanged }: { data: 
   }
 
   const saveLayout = async () => {
-    if (demoMode) { setEditing(false); return alert('미리보기에서는 배치가 화면에만 적용돼요.') }
+    if (demoMode) { setEditing(false); return showAppAlert('미리보기에서는 배치가 화면에만 적용돼요.') }
     setBusy(true)
     try { await updateStorageSpaces(spaces); setEditing(false); await onChanged() }
-    catch (error) { alert(error instanceof Error ? error.message : '주방맵을 저장하지 못했습니다.') }
+    catch (error) { void showAppAlert(error instanceof Error ? error.message : '주방맵을 저장하지 못했습니다.', '저장하지 못했어요', 'danger') }
     finally { setBusy(false) }
   }
 
   const removeSpace = async (space: StorageSpace) => {
-    if ((space.item_count || 0) > 0) return alert('식재료가 들어 있는 공간은 삭제할 수 없어요. 먼저 다른 공간으로 이동해 주세요.')
-    if (!window.confirm(`${space.name} 공간을 삭제할까요?`)) return
+    if ((space.item_count || 0) > 0) return showAppAlert('식재료가 들어 있는 공간은 삭제할 수 없어요. 먼저 다른 공간으로 이동해 주세요.', '공간을 비워주세요', 'warning')
+    if (!await showAppConfirm(`${space.name} 공간을 삭제할까요?`, { title: '보관공간 삭제', confirmLabel: '삭제', kind: 'danger' })) return
     if (demoMode) { setSpaces((current) => current.filter((item) => item.id !== space.id)); setFormSpace(null); return }
     await deleteStorageSpace(space.id); setFormSpace(null); await onChanged()
   }
 
   const addMap = async (name: string) => {
-    if (maps.some((map) => map.name === name)) return alert('이미 같은 이름의 맵이 있어요.')
+    if (maps.some((map) => map.name === name)) return showAppAlert('이미 같은 이름의 맵이 있어요.', '이름을 확인해 주세요', 'warning')
     if (demoMode) {
       const next = { id: `demo-map-${Date.now()}`, kitchen_id: data.kitchen.id, name, sort_order: maps.length + 1 }
       setMaps((current) => [...current, next]); setActiveMapId(next.id); setSelected(null); setFormMap(null); return
     }
     try { const next = await createKitchenMap(data.kitchen.id, name, maps.length + 1); setActiveMapId(next.id); setSelected(null); setFormMap(null); await onChanged() }
-    catch (error) { alert(error instanceof Error ? error.message : '맵을 추가하지 못했습니다.') }
+    catch (error) { void showAppAlert(error instanceof Error ? error.message : '맵을 추가하지 못했습니다.', '추가하지 못했어요', 'danger') }
   }
 
   const renameMap = async (name: string) => {
     if (!activeMap) return
     if (!name || name === activeMap.name) return
-    if (maps.some((map) => map.id !== activeMap.id && map.name === name)) return alert('이미 같은 이름의 맵이 있어요.')
+    if (maps.some((map) => map.id !== activeMap.id && map.name === name)) return showAppAlert('이미 같은 이름의 맵이 있어요.', '이름을 확인해 주세요', 'warning')
     if (demoMode) { setMaps((current) => current.map((map) => map.id === activeMap.id ? { ...map, name } : map)); setFormMap(null); return }
     try { await updateKitchenMap(activeMap.id, name); setFormMap(null); await onChanged() }
-    catch (error) { alert(error instanceof Error ? error.message : '맵 이름을 수정하지 못했습니다.') }
+    catch (error) { void showAppAlert(error instanceof Error ? error.message : '맵 이름을 수정하지 못했습니다.', '수정하지 못했어요', 'danger') }
   }
 
   const removeMap = async () => {
     if (!activeMap) return
-    if (maps.length <= 1) return alert('주방맵은 최소 한 개가 필요해요.')
-    if (activeMapSpaces.length > 0) return alert('보관공간이 있는 맵은 삭제할 수 없어요. 공간을 다른 맵으로 옮겨주세요.')
-    if (!window.confirm(`${activeMap.name} 맵을 삭제할까요?`)) return
+    if (maps.length <= 1) return showAppAlert('주방맵은 최소 한 개가 필요해요.', '삭제할 수 없어요', 'warning')
+    if (activeMapSpaces.length > 0) return showAppAlert('보관공간이 있는 맵은 삭제할 수 없어요. 공간을 다른 맵으로 옮겨주세요.', '맵을 비워주세요', 'warning')
+    if (!await showAppConfirm(`${activeMap.name} 맵을 삭제할까요?`, { title: '주방맵 삭제', confirmLabel: '삭제', kind: 'danger' })) return
     const nextMap = maps.find((map) => map.id !== activeMap.id)
     if (demoMode) setMaps((current) => current.filter((map) => map.id !== activeMap.id))
-    else { try { await deleteKitchenMap(activeMap.id); await onChanged() } catch (error) { return alert(error instanceof Error ? error.message : '맵을 삭제하지 못했습니다.') } }
+    else { try { await deleteKitchenMap(activeMap.id); await onChanged() } catch (error) { return showAppAlert(error instanceof Error ? error.message : '맵을 삭제하지 못했습니다.', '삭제하지 못했어요', 'danger') } }
     setActiveMapId(nextMap?.id || ''); setSelected(null)
   }
 
@@ -474,12 +485,12 @@ function SearchScreen({ data, query, setQuery, profileId, demoMode, onSelectItem
 
   const move = async (item: InventoryItem, targetId: string) => {
     if (targetId === item.storage_space_id) return setMovingItem(null)
-    if (demoMode) { setMovingItem(null); return alert('미리보기에서는 실제 이동이 저장되지 않아요.') }
+    if (demoMode) { setMovingItem(null); return showAppAlert('미리보기에서는 실제 이동이 저장되지 않아요.') }
     await moveInventoryItem(item, targetId, profileId); setMovingItem(null); await onChanged()
   }
   const finish = async (item: InventoryItem, status: 'consumed' | 'discarded') => {
-    if (demoMode) return alert('미리보기에서는 실제 변경이 저장되지 않아요.')
-    if (!window.confirm(`${item.product_name}을(를) ${status === 'consumed' ? '소진' : '폐기'} 처리할까요?`)) return
+    if (demoMode) return showAppAlert('미리보기에서는 실제 변경이 저장되지 않아요.')
+    if (!await showAppConfirm(`${item.product_name}을(를) ${status === 'consumed' ? '소진' : '폐기'} 처리할까요?`, { title: status === 'consumed' ? '상품 소진' : '상품 폐기', confirmLabel: status === 'consumed' ? '소진 처리' : '폐기 처리', kind: status === 'consumed' ? 'warning' : 'danger' })) return
     await finishInventoryItem(item.id, status); await onChanged()
   }
   return <>
@@ -510,14 +521,14 @@ function ItemDetailSheet({ item, spaces, demoMode, onClose, onSaved }: { item: I
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!name.trim() || !spaceId) return alert('상품명과 보관 위치는 필수입니다.')
-    if (demoMode) return alert('미리보기에서는 수정 내용이 저장되지 않아요.')
+    if (!name.trim() || !spaceId) return showAppAlert('상품명과 보관 위치는 필수입니다.', '필수 정보를 입력해 주세요', 'warning')
+    if (demoMode) return showAppAlert('미리보기에서는 수정 내용이 저장되지 않아요.')
     setBusy(true)
     try {
       const imagePath = file ? await uploadInventoryImage(file, item.kitchen_id, item.created_by || 'profile') : item.image_path
       await updateInventoryItem(item.id, { product_name: name.trim(), alias: alias.trim() || null, category: category.trim() || null, quantity: Number(quantity) || 1, unit, storage_space_id: spaceId, expiration_date: deadlineType === 'expiration' ? deadlineDate || null : null, use_by_date: deadlineType === 'use_by' ? deadlineDate || null : null, memo: memo.trim() || null, image_path: imagePath })
       await onSaved()
-    } catch (error) { alert(error instanceof Error ? error.message : '상품을 수정하지 못했습니다.') }
+    } catch (error) { void showAppAlert(error instanceof Error ? error.message : '상품을 수정하지 못했습니다.', '수정하지 못했어요', 'danger') }
     finally { setBusy(false) }
   }
 
@@ -550,12 +561,12 @@ function ConsumptionScreen({ data, demoMode, onChanged }: { data: AppData; demoM
 
   const submit = async () => {
     if (!selectedEntries.length) return
-    if (demoMode) return alert('미리보기에서는 실제 소비가 저장되지 않아요.')
+    if (demoMode) return showAppAlert('미리보기에서는 실제 소비가 저장되지 않아요.')
     const summary = selectedEntries.map(({ item, amount }) => `${item.product_name} ${amount}${item.unit}`).join(', ')
-    if (!window.confirm(`${summary}\n먹은 것으로 기록할까요?`)) return
+    if (!await showAppConfirm(`${summary}\n먹은 것으로 기록할까요?`, { title: '소비 기록', confirmLabel: '기록하기' })) return
     setBusy(true)
     try { await consumeInventoryItems(selectedEntries); setSelected({}); await onChanged() }
-    catch (error) { alert(error instanceof Error ? error.message : '소비 기록을 저장하지 못했습니다.') }
+    catch (error) { void showAppAlert(error instanceof Error ? error.message : '소비 기록을 저장하지 못했습니다.', '저장하지 못했어요', 'danger') }
     finally { setBusy(false) }
   }
 
@@ -564,29 +575,60 @@ function ConsumptionScreen({ data, demoMode, onChanged }: { data: AppData; demoM
 
 function RecipeScreen({ data, profileId, demoMode, onChanged }: { data: AppData; profileId: string; demoMode: boolean; onChanged: () => Promise<void> }) {
   const [selected, setSelected] = useState<Recipe | null>(null)
-  const [savedOnly, setSavedOnly] = useState(false)
-  const [exploring, setExploring] = useState(false)
+  const [editing, setEditing] = useState<Recipe | 'new' | null>(null)
+  const [view, setView] = useState<'book' | 'recommend'>('book')
   const [query, setQuery] = useState('')
-  const recommended = getRecommendedRecipes(data.recipes, data.items)
+  const recommended = getRecommendedRecipes(data.recipes.filter((recipe) => !recipe.created_by), data.items)
   const dailyRecipe = recommended[0]
-  const baseRecipes = savedOnly ? data.recipes.filter((recipe) => data.savedRecipeIds.includes(recipe.id)) : recommended
+  const bookRecipes = data.recipes.filter((recipe) => recipe.created_by === profileId || data.savedRecipeIds.includes(recipe.id))
+  const baseRecipes = view === 'book' ? bookRecipes : recommended
   const searchedRecipes = baseRecipes.filter((recipe) => `${recipe.title} ${recipe.summary || ''} ${(recipe.ingredients || []).map((ingredient) => ingredient.ingredient_name).join(' ')}`.toLowerCase().includes(query.toLowerCase()))
-  const visibleRecipes = exploring || savedOnly ? searchedRecipes : searchedRecipes.slice(0, 4)
+  const visibleRecipes = view === 'book' ? searchedRecipes : searchedRecipes.slice(0, 8)
   const toggleSave = async (recipe: Recipe) => {
-    if (demoMode) return alert('미리보기에서는 저장되지 않아요.')
+    if (demoMode) return showAppAlert('미리보기에서는 저장되지 않아요.')
     await toggleSavedRecipe(profileId, recipe.id, data.savedRecipeIds.includes(recipe.id)); await onChanged()
   }
-  if (!data.recipes.length) return <><div className="page-heading"><div><p>있는 재료부터 맛있게</p><h1>레시피</h1></div></div><div className="no-results"><BookOpen /><p>등록된 레시피가 없어요.</p></div></>
+  const remove = async (recipe: Recipe) => {
+    if (!await showAppConfirm(`${recipe.title} 레시피를 삭제할까요?`, { title: '내 레시피 삭제', confirmLabel: '삭제', kind: 'danger' })) return
+    await deletePersonalRecipe(profileId, recipe.id); setSelected(null); await onChanged()
+  }
   return <>
-    <div className="page-heading"><div><p>있는 재료부터 맛있게</p><h1>레시피</h1></div><button className={`icon-text ${savedOnly ? 'selected' : ''}`} onClick={() => setSavedOnly((current) => !current)}><BookOpen /> 저장됨 {data.savedRecipeIds.length}</button></div>
-    {!exploring && !savedOnly && dailyRecipe && <article className="today-recipe"><div><span>오늘의 추천 레시피 · 매일 변경</span><h2>{dailyRecipe.title}</h2><p>{dailyRecipe.summary}</p><button onClick={() => setSelected(dailyRecipe)}>레시피 보기</button></div><div>🥘</div></article>}
-    {(exploring || savedOnly) && <label className="global-search recipe-search"><Search /><input autoFocus={exploring} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="레시피 이름이나 재료로 검색" />{query && <button onClick={() => setQuery('')}><X /></button>}</label>}
-    {!exploring && !savedOnly && dailyRecipe && <><SectionTitle title="재료 보유 현황" action="내 식재료 기준" /><div className="ingredient-summary"><div><b>{getRecipeMatch(dailyRecipe, data.items).have}</b><span>집에 있어요</span></div><div><b>{getRecipeMatch(dailyRecipe, data.items).urgent}</b><span>곧 상할 재료</span></div><div><b>{getRecipeMatch(dailyRecipe, data.items).missing}</b><span>추가로 필요</span></div></div></>}
-    <SectionTitle title={savedOnly ? '저장한 레시피' : exploring ? '레시피 탐색' : '추천 레시피'} action={`${searchedRecipes.length}개`} />
-    <div className="recipe-list">{visibleRecipes.length ? visibleRecipes.map((recipe) => { const match = getRecipeMatch(recipe, data.items); return <div className="recipe-list-row" key={recipe.id}><button onClick={() => setSelected(recipe)}><span>🍳</span><div><h3>{recipe.title}</h3><p>{recipe.summary}</p><small><Clock3 /> {recipe.cook_minutes || '-'}분 · 재료 {match.have}/{match.total}</small></div><ChevronRight /></button><button className={data.savedRecipeIds.includes(recipe.id) ? 'saved' : ''} aria-label={`${recipe.title} 저장`} onClick={() => void toggleSave(recipe)}><BookOpen /></button></div> }) : <div className="no-results"><BookOpen /><p>저장한 레시피가 없어요.</p></div>}</div>
-    {!savedOnly && searchedRecipes.length > 4 && <button className="recipe-explore-button" onClick={() => { setExploring((current) => !current); setQuery('') }}>{exploring ? '추천만 보기' : `레시피 더보기 · ${searchedRecipes.length - 4}개`} <ChevronRight /></button>}
-    {selected && <RecipeDetail recipe={selected} items={data.items} saved={data.savedRecipeIds.includes(selected.id)} onToggleSave={() => void toggleSave(selected)} onClose={() => setSelected(null)} />}
+    <div className="page-heading"><div><p>나만의 요리 메모장</p><h1>레시피북</h1></div><button className="icon-text recipe-add" onClick={() => setEditing('new')}><Plus /> 레시피 추가</button></div>
+    <div className="recipe-book-tabs"><button className={view === 'book' ? 'active' : ''} onClick={() => { setView('book'); setQuery('') }}>내 레시피북 <span>{bookRecipes.length}</span></button><button className={view === 'recommend' ? 'active' : ''} onClick={() => { setView('recommend'); setQuery('') }}>기본 추천</button></div>
+    {view === 'recommend' && dailyRecipe && <article className="today-recipe"><div><span>오늘의 추천 레시피 · 매일 변경</span><h2>{dailyRecipe.title}</h2><p>{dailyRecipe.summary}</p><button onClick={() => setSelected(dailyRecipe)}>레시피 보기</button></div><div>🥘</div></article>}
+    <label className="global-search recipe-search"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="레시피 이름이나 재료로 검색" />{query && <button onClick={() => setQuery('')}><X /></button>}</label>
+    <SectionTitle title={view === 'book' ? '저장한 레시피' : '추천 레시피'} action={`${searchedRecipes.length}개`} />
+    <div className="recipe-list">{visibleRecipes.length ? visibleRecipes.map((recipe) => { const match = getRecipeMatch(recipe, data.items); const personal = recipe.created_by === profileId; return <div className="recipe-list-row" key={recipe.id}><button onClick={() => setSelected(recipe)}><span>{personal ? '📝' : '🍳'}</span><div><h3>{recipe.title}</h3><p>{recipe.summary}</p><small><Clock3 /> {recipe.cook_minutes || '-'}분 · 재료 {match.have}/{match.total}</small></div><ChevronRight /></button>{view === 'book' ? <button aria-label={`${recipe.title} 수정`} onClick={() => setEditing(recipe)}><PenLine /></button> : <button className={data.savedRecipeIds.includes(recipe.id) ? 'saved' : ''} aria-label={`${recipe.title} 저장`} onClick={() => void toggleSave(recipe)}><BookOpen /></button>}</div> }) : <div className="no-results"><BookOpen /><p>{view === 'book' ? '레시피를 추가하거나 추천에서 저장해 보세요.' : '검색 결과가 없어요.'}</p></div>}</div>
+    {selected && <RecipeDetail recipe={selected} items={data.items} saved={data.savedRecipeIds.includes(selected.id)} onToggleSave={selected.created_by === profileId ? undefined : () => void toggleSave(selected)} onEdit={view === 'book' ? () => { setEditing(selected); setSelected(null) } : undefined} onDelete={selected.created_by === profileId ? () => void remove(selected) : undefined} onClose={() => setSelected(null)} />}
+    {editing && <RecipeEditor recipe={editing === 'new' ? null : editing} profileId={profileId} savedRecipeIds={data.savedRecipeIds} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await onChanged() }} />}
   </>
+}
+
+function RecipeEditor({ recipe, profileId, savedRecipeIds, onClose, onSaved }: { recipe: Recipe | null; profileId: string; savedRecipeIds: string[]; onClose: () => void; onSaved: () => Promise<void> }) {
+  const personal = recipe?.created_by === profileId
+  const [title, setTitle] = useState(recipe?.title || '')
+  const [summary, setSummary] = useState(recipe?.summary || '')
+  const [youtubeUrl, setYoutubeUrl] = useState(recipe?.youtube_url || '')
+  const [cookMinutes, setCookMinutes] = useState(recipe?.cook_minutes ? String(recipe.cook_minutes) : '')
+  const [difficulty, setDifficulty] = useState(recipe?.difficulty || '쉬움')
+  const [instructions, setInstructions] = useState((recipe?.instructions || []).join('\n'))
+  const [ingredients, setIngredients] = useState((recipe?.ingredients || []).map((item) => ({ name: item.ingredient_name, amount: item.amount || '' })).concat(recipe?.ingredients?.length ? [] : [{ name: '', amount: '' }]))
+  const [busy, setBusy] = useState(false)
+  const save = async () => {
+    const cleanIngredients = ingredients.filter((item) => item.name.trim())
+    if (!title.trim()) return showAppAlert('레시피 이름을 입력해 주세요.', '필수 정보를 입력해 주세요', 'warning')
+    if (!cleanIngredients.length) return showAppAlert('재료를 한 가지 이상 입력해 주세요.', '재료가 필요해요', 'warning')
+    if (youtubeUrl.trim() && !getYoutubeEmbedUrl(youtubeUrl.trim())) return showAppAlert('youtube.com 또는 youtu.be의 올바른 영상 URL을 입력해 주세요.', '유튜브 URL을 확인해 주세요', 'warning')
+    setBusy(true)
+    try {
+      await savePersonalRecipe(profileId, personal && recipe ? recipe.id : null, { title, summary, youtubeUrl, cookMinutes: Number(cookMinutes) || null, difficulty, instructions: instructions.split('\n').map((line) => line.trim()).filter(Boolean), ingredients: cleanIngredients })
+      if (recipe && !personal && savedRecipeIds.includes(recipe.id)) await toggleSavedRecipe(profileId, recipe.id, true)
+      await onSaved()
+    } catch (error) { void showAppAlert(error instanceof Error ? error.message : '레시피를 저장하지 못했습니다.', '저장하지 못했어요', 'danger') }
+    finally { setBusy(false) }
+  }
+  const changeIngredient = (index: number, key: 'name' | 'amount', value: string) => setIngredients((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item))
+  return <div className="sheet-backdrop"><section className="recipe-editor"><div className="recipe-editor-head"><button onClick={onClose}><ArrowLeft /></button><div><p>{personal ? '내 레시피 수정' : recipe ? '추천 레시피를 내 레시피로 복사' : '새로운 요리 기록'}</p><h2>{recipe ? '레시피 편집' : '레시피 추가'}</h2></div><button disabled={busy} onClick={() => void save()}>{busy ? <LoaderCircle className="spin" /> : '저장'}</button></div><div className="recipe-editor-form"><label><span>레시피 이름 *</span><input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="예: 우리집 김치볶음밥" /></label><label><span>간단한 설명</span><textarea value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="언제, 어떤 맛으로 먹는 레시피인지 적어보세요." /></label><label><span>유튜브 URL</span><input inputMode="url" value={youtubeUrl} onChange={(event) => setYoutubeUrl(event.target.value)} placeholder="https://youtube.com/watch?v=..." /></label><div className="recipe-editor-row"><label><span>조리 시간</span><input inputMode="numeric" value={cookMinutes} onChange={(event) => setCookMinutes(event.target.value.replace(/\D/g, ''))} placeholder="분" /></label><label><span>난이도</span><select value={difficulty} onChange={(event) => setDifficulty(event.target.value)}><option>쉬움</option><option>보통</option><option>어려움</option></select></label></div><div className="recipe-ingredient-editor"><div><span>재료 *</span><button onClick={() => setIngredients((current) => [...current, { name: '', amount: '' }])}><Plus /> 재료 추가</button></div>{ingredients.map((ingredient, index) => <div className="recipe-ingredient-input" key={index}><input value={ingredient.name} onChange={(event) => changeIngredient(index, 'name', event.target.value)} placeholder="재료명" /><input value={ingredient.amount} onChange={(event) => changeIngredient(index, 'amount', event.target.value)} placeholder="수량/분량" /><button disabled={ingredients.length === 1} onClick={() => setIngredients((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X /></button></div>)}</div><label><span>만드는 법 · 조리 메모</span><textarea className="recipe-notes" value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder={'한 줄에 한 단계씩 적어주세요.\n예) 팬에 기름을 두르고 대파를 볶아요.'} /></label></div></section></div>
 }
 
 function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSaved }: { data: AppData; initialSpaceId: string | null; profileId: string; demoMode: boolean; onClose: () => void; onSaved: () => Promise<void> }) {
@@ -607,6 +649,7 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
   const [barcodeImageUrl, setBarcodeImageUrl] = useState('')
   const [catalogProductId, setCatalogProductId] = useState<string | null>(null)
   const [needsSharedReview, setNeedsSharedReview] = useState(false)
+  const [duplicateItem, setDuplicateItem] = useState<InventoryItem | null>(null)
   const quantityStep = unit === 'g' ? 100 : unit === 'kg' ? 0.1 : 1
   const changeQuantity = (direction: 1 | -1) => setQuantity((current) => String(Math.max(quantityStep, Number((Number(current) + quantityStep * direction).toFixed(2)))))
   const changeUnit = (nextUnit: string) => {
@@ -619,23 +662,40 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
     if (!nextBarcode) return
     setBarcode(nextBarcode)
     setBusy(true)
-    try { const found = await lookupBarcode(nextBarcode, profileId, data.kitchen.id); if (found) { setNeedsSharedReview(false); setCatalogProductId(found.catalogId); setName(found.name); setCategory(found.category); changeUnit(found.unit); setBarcodeImageUrl(found.imageUrl); setPreview(found.imageUrl) } else { setNeedsSharedReview(true); setCatalogProductId(null); alert('처음 등록하는 상품이에요. 입력한 상품명은 관리자 검토 후 공용 바코드 정보로 활용될 수 있어요.') } } finally { setBusy(false) }
+    try { const found = await lookupBarcode(nextBarcode, profileId, data.kitchen.id); if (found) { setNeedsSharedReview(false); setCatalogProductId(found.catalogId); setName(found.name); setCategory(found.category); changeUnit(found.unit); setBarcodeImageUrl(found.imageUrl); setPreview(found.imageUrl) } else { setNeedsSharedReview(true); setCatalogProductId(null); void showAppAlert('처음 등록하는 상품이에요. 입력한 상품명은 관리자 검토 후 공용 바코드 정보로 활용될 수 있어요.', '새로운 바코드 상품') } } finally { setBusy(false) }
   }
-  const save = async () => {
-    if (!name.trim() || !spaceId) return alert('상품명과 보관 위치는 필수입니다.')
-    if (demoMode) { alert('등록 흐름을 확인했어요. 로그인 후에는 실제로 저장됩니다.'); await onSaved(); return }
+  const submitSharedReview = async (imagePath: string | null) => {
+    if (!needsSharedReview || !barcode) return
+    try { await submitBarcodeProduct({ barcode, productName: name.trim(), category, unit, imageUrl: getInventoryImageUrl(imagePath) }) }
+    catch (submissionError) { console.warn('공용 바코드 검토 요청 실패:', submissionError) }
+  }
+  const createNewItem = async () => {
     setBusy(true)
     try {
       const imagePath = file ? await uploadInventoryImage(file, data.kitchen.id, profileId) : barcodeImageUrl || null
       await createInventoryItem({ kitchen_id: data.kitchen.id, storage_space_id: spaceId, catalog_product_id: catalogProductId, created_by: profileId, product_name: name.trim(), alias: alias.trim() || null, barcode: barcode || null, image_path: imagePath, category: category || null, quantity: Number(quantity) || quantityStep, unit, purchased_at: new Date().toISOString().slice(0, 10), opened_at: null, expiration_date: deadlineType === 'expiration' ? deadlineDate || null : null, use_by_date: deadlineType === 'use_by' ? deadlineDate || null : null, recommended_use_date: null, memo: memo.trim() || null, registration_method: mode })
-      if (needsSharedReview && barcode) {
-        try { await submitBarcodeProduct({ barcode, productName: name.trim(), category, unit, imageUrl: getInventoryImageUrl(imagePath) }) }
-        catch (submissionError) {
-          console.warn('공용 바코드 검토 요청 실패:', submissionError)
-        }
-      }
+      await submitSharedReview(imagePath)
       await onSaved()
-    } catch (error) { alert(error instanceof Error ? error.message : '저장하지 못했습니다.') } finally { setBusy(false) }
+    } catch (error) { void showAppAlert(error instanceof Error ? error.message : '저장하지 못했습니다.', '저장하지 못했어요', 'danger') } finally { setBusy(false) }
+  }
+  const save = async () => {
+    if (!name.trim() || !spaceId) return showAppAlert('상품명과 보관 위치는 필수입니다.', '필수 정보를 입력해 주세요', 'warning')
+    if (demoMode) { void showAppAlert('등록 흐름을 확인했어요. 로그인 후에는 실제로 저장됩니다.'); await onSaved(); return }
+    const normalizedName = name.trim().replace(/\s+/g, ' ').toLowerCase()
+    const duplicate = data.items.find((item) => item.storage_space_id === spaceId && item.unit === unit && (
+      barcode ? item.barcode === barcode : !item.barcode && item.product_name.trim().replace(/\s+/g, ' ').toLowerCase() === normalizedName
+    ))
+    if (duplicate) { setDuplicateItem(duplicate); return }
+    await createNewItem()
+  }
+  const mergeQuantity = async () => {
+    if (!duplicateItem) return
+    setBusy(true)
+    try {
+      await updateInventoryItem(duplicateItem.id, { quantity: Number(duplicateItem.quantity) + (Number(quantity) || quantityStep) })
+      await submitSharedReview(duplicateItem.image_path)
+      await onSaved()
+    } catch (error) { void showAppAlert(error instanceof Error ? error.message : '저장하지 못했습니다.', '저장하지 못했어요', 'danger') } finally { setBusy(false) }
   }
   return <div className="sheet-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><section className="add-sheet"><div className="sheet-handle" /><div className="sheet-head"><div><p>10초 안에 빠르게</p><h2>식재료 추가</h2></div><button onClick={onClose}><X /></button></div>
     <div className="mode-tabs"><button className={mode === 'barcode' ? 'active' : ''} onClick={() => setMode('barcode')}><ScanLine /> 바코드</button><button className={mode === 'manual' ? 'active' : ''} onClick={() => setMode('manual')}><PenLine /> 직접 입력</button></div>
@@ -643,7 +703,8 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
     <label className="photo-field">{preview ? <img src={preview} /> : <Camera />}<span>{file ? file.name : barcodeImageUrl ? '바코드 상품 사진을 함께 저장해요' : '상품 사진 촬영 또는 선택'}</span><input type="file" accept="image/*" capture="environment" onChange={(e) => { const selected = e.target.files?.[0] || null; setFile(selected); if (selected) { setBarcodeImageUrl(''); setPreview(URL.createObjectURL(selected)) } }} /></label>
     <div className="form-grid"><label className="full"><span>상품명 *</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 사과" /></label><label><span>별칭</span><input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder="아침용" /></label><CategoryField value={category} onChange={setCategory} /><div className="quantity-field"><span>수량</span><div className="register-stepper"><button type="button" aria-label="수량 줄이기" onClick={() => changeQuantity(-1)}>−</button><strong>{quantity}</strong><button type="button" aria-label="수량 늘이기" onClick={() => changeQuantity(1)}>+</button></div></div><label><span>단위</span><select value={unit} onChange={(e) => changeUnit(e.target.value)}><option>개</option><option>팩</option><option>병</option><option>봉</option><option>g</option><option>kg</option><option>모</option></select></label><label className="full"><span>보관 위치 *</span><select value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>{data.spaces.map((space) => <option key={space.id} value={space.id}>{space.name}{space.alias ? ` · ${space.alias}` : ''}</option>)}</select></label><label><span>기한 종류</span><select value={deadlineType} onChange={(e) => setDeadlineType(e.target.value as 'use_by' | 'expiration')}><option value="use_by">소비기한</option><option value="expiration">유통기한</option></select></label><label><span>{deadlineType === 'use_by' ? '소비기한 날짜' : '유통기한 날짜'}</span><input type="date" value={deadlineDate} onChange={(e) => setDeadlineDate(e.target.value)} /></label><label className="full"><span>메모</span><textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="보관법이나 구입처를 적어두세요." /></label></div>
     <button className="primary-button" disabled={busy} onClick={save}>{busy ? <LoaderCircle className="spin" /> : <PackageCheck />} 저장하기</button>
-  </section></div>
+  </section>{duplicateItem && <div className="duplicate-item-backdrop"><section className="duplicate-item-dialog"><div className="duplicate-item-icon"><PackageCheck /></div><h3>이미 같은 공간에 있는 상품이에요</h3><p><b>{duplicateItem.product_name}</b>의 기존 수량 {duplicateItem.quantity}{duplicateItem.unit}에 새 수량 {quantity}{unit}을 추가할까요?</p><div className="duplicate-deadline-warning"><Clock3 /><span><b>수량 추가 시 기존 기한을 유지해요.</b><small>{duplicateItem.use_by_date ? `소비기한 ${duplicateItem.use_by_date}` : duplicateItem.expiration_date ? `유통기한 ${duplicateItem.expiration_date}` : '기존 상품에 등록된 기한 없음'}{deadlineDate ? ` · 새로 입력한 ${deadlineType === 'use_by' ? '소비기한' : '유통기한'} ${deadlineDate}은 적용되지 않음` : ''}</small></span></div><div className="duplicate-item-actions"><button disabled={busy} onClick={() => setDuplicateItem(null)}>취소</button><button disabled={busy} onClick={() => { setDuplicateItem(null); void createNewItem() }}>별도로 등록</button><button disabled={busy} onClick={() => void mergeQuantity()}>{busy ? <LoaderCircle className="spin" /> : <Plus />} 수량 추가</button></div></section></div>}
+  </div>
 }
 
 function BarcodeCameraScanner({ onDetected }: { onDetected: (barcode: string) => Promise<void> }) {
@@ -700,8 +761,10 @@ function BarcodeCameraScanner({ onDetected }: { onDetected: (barcode: string) =>
   </section>
 }
 
-function RecipeDetail({ recipe, items, saved, onToggleSave, onClose }: { recipe: Recipe; items: InventoryItem[]; saved: boolean; onToggleSave?: () => void; onClose: () => void }) {
-  return <div className="sheet-backdrop"><section className="recipe-detail"><div className="sheet-head"><div><p>{recipe.cook_minutes}분 · {recipe.difficulty}</p><h2>{recipe.title}</h2></div><button onClick={onClose}><X /></button></div>{onToggleSave && <button className={`recipe-save-button ${saved ? 'saved' : ''}`} onClick={onToggleSave}><BookOpen /> {saved ? '저장됨' : '레시피 저장'}</button>}<p>{recipe.summary}</p><h3>재료</h3>{recipe.ingredients?.map((ingredient) => { const have = items.some((item) => itemMatchesIngredient(item, ingredient.ingredient_name)); return <div className={`recipe-ingredient ${have ? 'have' : ''}`} key={ingredient.ingredient_name}><span>{have ? <Check /> : <Plus />}</span><b>{ingredient.ingredient_name}</b><small>{ingredient.amount} · {have ? '집에 있어요' : '추가로 필요해요'}</small></div> })}<h3>만드는 법</h3><ol>{recipe.instructions.map((step, index) => <li key={step}><span>{index + 1}</span>{step}</li>)}</ol></section></div>
+function RecipeDetail({ recipe, items, saved, onToggleSave, onEdit, onDelete, onClose }: { recipe: Recipe; items: InventoryItem[]; saved: boolean; onToggleSave?: () => void; onEdit?: () => void; onDelete?: () => void; onClose: () => void }) {
+  const [videoOpen, setVideoOpen] = useState(false)
+  const embedUrl = getYoutubeEmbedUrl(recipe.youtube_url)
+  return <div className="sheet-backdrop"><section className="recipe-detail"><div className="recipe-detail-nav"><button onClick={onClose}><ArrowLeft /> 뒤로</button><div>{onEdit && <button onClick={onEdit}><PenLine /> 수정</button>}{onDelete && <button className="danger" onClick={onDelete}><Trash2 /> 삭제</button>}</div></div><div className="sheet-head"><div><p>{recipe.cook_minutes || '-'}분 · {recipe.difficulty || '난이도 없음'}</p><h2>{recipe.title}</h2></div></div>{onToggleSave && <button className={`recipe-save-button ${saved ? 'saved' : ''}`} onClick={onToggleSave}><BookOpen /> {saved ? '저장됨' : '레시피 저장'}</button>}{recipe.youtube_url && <div className="recipe-video-actions">{embedUrl && <button onClick={() => setVideoOpen(true)}>▶ 영상 보기</button>}<a href={recipe.youtube_url} target="_blank" rel="noreferrer">유튜브 열기 ↗</a></div>}<p>{recipe.summary}</p><h3>재료</h3>{recipe.ingredients?.map((ingredient) => { const have = items.some((item) => itemMatchesIngredient(item, ingredient.ingredient_name)); return <div className={`recipe-ingredient ${have ? 'have' : ''}`} key={ingredient.ingredient_name}><span>{have ? <Check /> : <Plus />}</span><b>{ingredient.ingredient_name}</b><small>{ingredient.amount} · {have ? '집에 있어요' : '추가로 필요해요'}</small></div> })}<h3>만드는 법</h3>{recipe.instructions.length ? <ol>{recipe.instructions.map((step, index) => <li key={`${index}-${step}`}><span>{index + 1}</span>{step}</li>)}</ol> : <p>아직 조리 메모가 없어요.</p>}</section>{videoOpen && embedUrl && <div className="recipe-video-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setVideoOpen(false)}><section className="recipe-video-player"><div><b>{recipe.title}</b><button onClick={() => setVideoOpen(false)}><X /></button></div><iframe src={embedUrl} title={`${recipe.title} 유튜브 영상`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen /></section></div>}</div>
 }
 
 function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, onSignOut, onGoMap, onGoRecipes, onOpenNotifications, onChanged }: { profile: Profile | null; kitchenName: string; kitchenId: string; demoMode: boolean; onExitDemo: () => void; onSignOut: () => Promise<void>; onGoMap: () => void; onGoRecipes: () => void; onOpenNotifications: () => void; onChanged: () => Promise<void> }) {
@@ -720,7 +783,7 @@ function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, 
       else await updateKitchenName(kitchenId, clean)
       setEditing(null)
       await onChanged()
-    } catch (error) { alert(error instanceof Error ? error.message : '저장하지 못했습니다.') }
+    } catch (error) { void showAppAlert(error instanceof Error ? error.message : '저장하지 못했습니다.', '저장하지 못했어요', 'danger') }
     finally { setBusy(false) }
   }
   return <>
@@ -776,7 +839,7 @@ function BarcodeAdminSheet({ onClose }: { onClose: () => void }) {
     catch (nextError) { setError((nextError as { message?: string }).message || '상품을 승인하지 못했습니다.'); setBusy(false) }
   }
   const reject = async () => {
-    if (!selectedSubmission || !window.confirm('이 검토 요청을 삭제할까요? 사용자의 개인 상품은 삭제되지 않습니다.')) return
+    if (!selectedSubmission || !await showAppConfirm('이 검토 요청을 삭제할까요? 사용자의 개인 상품은 삭제되지 않습니다.', { title: '검토 요청 삭제', confirmLabel: '삭제', kind: 'danger' })) return
     setBusy(true); setError('')
     try { await rejectBarcodeProduct(selectedSubmission.id); closeEditor(); await load() }
     catch (nextError) { setError((nextError as { message?: string }).message || '검토 요청을 삭제하지 못했습니다.'); setBusy(false) }
@@ -803,7 +866,7 @@ function BarcodeAdminSheet({ onClose }: { onClose: () => void }) {
     catch (nextError) { setError((nextError as { message?: string }).message || '공용 상품을 수정하지 못했습니다.'); setBusy(false) }
   }
   const deleteProduct = async () => {
-    if (!selectedProduct || !window.confirm('공용 상품을 삭제할까요? 사용자별 보관 식재료 기록은 유지됩니다.')) return
+    if (!selectedProduct || !await showAppConfirm('공용 상품을 삭제할까요? 사용자별 보관 식재료 기록은 유지됩니다.', { title: '공용 상품 삭제', confirmLabel: '삭제', kind: 'danger' })) return
     setBusy(true); setError('')
     try { await deleteSharedBarcodeProduct(selectedProduct); closeEditor(); await load() }
     catch (nextError) { setError((nextError as { message?: string }).message || '공용 상품을 삭제하지 못했습니다.'); setBusy(false) }

@@ -96,6 +96,8 @@ export type Recipe = {
   image_url: string | null
   cook_minutes: number | null
   difficulty: string | null
+  youtube_url?: string | null
+  created_by?: string | null
   instructions: string[]
   ingredients?: { ingredient_name: string; amount: string | null; is_optional: boolean }[]
 }

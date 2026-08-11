@@ -158,6 +158,29 @@ export async function toggleSavedRecipe(profileId: string, recipeId: string, isS
   if (error) throw error
 }
 
+export async function savePersonalRecipe(profileId: string, recipeId: string | null, input: { title: string; summary?: string; youtubeUrl?: string; cookMinutes?: number | null; difficulty?: string; instructions: string[]; ingredients: { name: string; amount?: string }[] }) {
+  const values = { title: input.title.trim(), summary: input.summary?.trim() || null, youtube_url: input.youtubeUrl?.trim() || null, cook_minutes: input.cookMinutes || null, difficulty: input.difficulty || '쉬움', instructions: input.instructions, created_by: profileId, is_active: true }
+  const recipeResult = recipeId
+    ? await supabase.from('recipes').update(values).eq('id', recipeId).eq('created_by', profileId).select().single()
+    : await supabase.from('recipes').insert(values).select().single()
+  if (recipeResult.error) throw recipeResult.error
+  const savedRecipeId = recipeResult.data.id as string
+  if (recipeId) {
+    const { error } = await supabase.from('recipe_ingredients').delete().eq('recipe_id', savedRecipeId)
+    if (error) throw error
+  }
+  if (input.ingredients.length) {
+    const { error } = await supabase.from('recipe_ingredients').insert(input.ingredients.map((ingredient, index) => ({ recipe_id: savedRecipeId, ingredient_name: ingredient.name.trim(), amount: ingredient.amount?.trim() || null, sort_order: index })))
+    if (error) throw error
+  }
+  return savedRecipeId
+}
+
+export async function deletePersonalRecipe(profileId: string, recipeId: string) {
+  const { error } = await supabase.from('recipes').delete().eq('id', recipeId).eq('created_by', profileId)
+  if (error) throw error
+}
+
 export async function markNotificationsRead(profileId: string) {
   const { error } = await supabase.from('notifications').update({ is_read: true }).eq('profile_id', profileId).eq('is_read', false)
   if (error) throw error
