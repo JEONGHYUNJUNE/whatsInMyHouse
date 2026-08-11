@@ -1187,7 +1187,6 @@ function itemMatchesIngredient(item: InventoryItem, ingredientName: string) {
   const ingredient = normalizeIngredient(ingredientName)
   const productName = normalizeIngredient(item.product_name)
   const category = normalizeIngredient(item.category || '')
-  if (ingredient === '김' && /김치|김밥/.test(productName)) return false
   if (productName === ingredient || category === ingredient) return true
   if (ingredient.length < 2) return false
   return productName.includes(ingredient)
@@ -1200,7 +1199,6 @@ function explicitlyRelatedIngredient(item: InventoryItem, ingredient: string) {
   if (!group) return false
   const productName = normalizeIngredient(item.product_name)
   const category = normalizeIngredient(item.category || '')
-  if ((ingredient === '김' || ingredient === '김가루') && /김치|김밥/.test(productName)) return false
   return group.some((name) => name !== ingredient && (productName === name || category === name || productName.endsWith(name)))
 }
 function getIngredientAvailability(items: InventoryItem[], ingredientName: string) {
