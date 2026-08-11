@@ -1185,12 +1185,11 @@ function normalizeIngredient(value: string) {
 }
 function itemMatchesIngredient(item: InventoryItem, ingredientName: string) {
   const ingredient = normalizeIngredient(ingredientName)
-  return [item.product_name, item.category].filter(Boolean).some((value) => {
-    const candidate = normalizeIngredient(value as string)
-    if (candidate === ingredient) return true
-    if (ingredient.length < 2 || candidate.length < 2) return false
-    return candidate.includes(ingredient) || ingredient.includes(candidate)
-  })
+  const productName = normalizeIngredient(item.product_name)
+  const category = normalizeIngredient(item.category || '')
+  if (productName === ingredient || category === ingredient) return true
+  if (ingredient.length < 2) return false
+  return productName.includes(ingredient)
 }
 function getRecipeMatch(recipe: Recipe | undefined, items: InventoryItem[]) { const ingredients = recipe?.ingredients || []; const matches = ingredients.map((ingredient) => items.find((item) => itemMatchesIngredient(item, ingredient.ingredient_name))); return { total: ingredients.length, have: matches.filter(Boolean).length, urgent: matches.filter((item) => item && getDaysLeft(item) <= 3).length, missing: matches.filter((item) => !item).length } }
 function getRecommendedRecipes(recipes: Recipe[], items: InventoryItem[]) {
