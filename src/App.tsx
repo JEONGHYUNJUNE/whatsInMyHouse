@@ -1035,6 +1035,7 @@ function receiptCandidatesFromText(text: string, defaultSpaceId: string) {
     ? rawLines.slice(productHeaderIndex + 1, totalIndex)
     : rawLines
   let pendingNumbered: ReceiptCandidate | null = null
+  let pendingLoose: { name: string; quantity: number } | null = null
   const addCandidate = (candidate: ReceiptCandidate) => {
     const key = candidate.barcode || candidate.name.replace(/\s+/g, '').toLowerCase()
     const existing = candidates.find((item) => (item.barcode || item.name.replace(/\s+/g, '').toLowerCase()) === key)
@@ -1053,6 +1054,12 @@ function receiptCandidatesFromText(text: string, defaultSpaceId: string) {
     if (barcode && pendingNumbered && /^\s*\*?\d{8,14}(?:\s|$)/.test(line)) {
       pendingNumbered.barcode = barcode
       pendingNumbered = null
+      pendingLoose = null
+      continue
+    }
+    if (barcode && pendingLoose && /^\s*\*?\d{8,14}(?:\s|$)/.test(line)) {
+      addCandidate({ id: crypto.randomUUID(), name: pendingLoose.name, quantity: pendingLoose.quantity, unit: '개', spaceId: defaultSpaceId, selected: true, deadlineType: 'purchase', deadlineDate: todayDate(), purchasedAt: todayDate(), barcode })
+      pendingLoose = null
       continue
     }
     const numbered = line.match(/^\s*(\d{1,3})[.)]?\s+(.+)$/)
@@ -1068,11 +1075,15 @@ function receiptCandidatesFromText(text: string, defaultSpaceId: string) {
     line = line.replace(/\s+\d[\d,.]*\s*원?\s*$/, '').trim()
     const letters = (line.match(/[가-힣A-Za-z]/g) || []).length
     const digits = (line.match(/\d/g) || []).length
-    if (!hasPrice && (letters < 3 || line.length > 32 || digits > letters)) continue
     if (line.length < 2 || letters < 2) continue
     const normalized = line.replace(/\b\d{8,14}\b/g, '').replace(/^P\s*/i, '').trim().slice(0, 45)
     if (normalized.length < 2) continue
-    const candidate = addCandidate({ id: crypto.randomUUID(), name: normalized, quantity, unit: '개', spaceId: defaultSpaceId, selected: hasPrice || Boolean(numbered) || Boolean(barcode), deadlineType: 'purchase', deadlineDate: todayDate(), purchasedAt: todayDate(), ...(barcode ? { barcode } : {}) })
+    if (!hasPrice && !numbered && !barcode) {
+      pendingLoose = letters >= 3 && line.length <= 32 && digits <= letters ? { name: normalized, quantity } : null
+      continue
+    }
+    const candidate = addCandidate({ id: crypto.randomUUID(), name: normalized, quantity, unit: '개', spaceId: defaultSpaceId, selected: true, deadlineType: 'purchase', deadlineDate: todayDate(), purchasedAt: todayDate(), ...(barcode ? { barcode } : {}) })
+    pendingLoose = null
     pendingNumbered = !barcode ? candidate : null
   }
   return candidates.slice(0, 50)
