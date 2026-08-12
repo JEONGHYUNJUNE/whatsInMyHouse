@@ -327,11 +327,12 @@ async function archiveBarcodeImage(barcode: string, source?: string | File | nul
   const path = barcode
   const { error } = await supabase.storage.from('barcode-images').upload(path, blob, {
     contentType,
-    cacheControl: '31536000',
+    cacheControl: '60',
     upsert: true,
   })
   if (error) throw error
-  return supabase.storage.from('barcode-images').getPublicUrl(path).data.publicUrl
+  const publicUrl = supabase.storage.from('barcode-images').getPublicUrl(path).data.publicUrl
+  return `${publicUrl}?v=${Date.now()}`
 }
 
 export async function approveBarcodeProduct(submissionId: string, barcode: string, input: { productName: string; brand?: string; category?: string; unit?: string; imageUrl?: string; imageFile?: File | null }) {
