@@ -141,6 +141,7 @@ function App() {
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
   const [movingItem, setMovingItem] = useState<InventoryItem | null>(null)
   const [consumingItem, setConsumingItem] = useState<InventoryItem | null>(null)
+  const [onboardingOpen, setOnboardingOpen] = useState(false)
   const [sharedRecipeId, setSharedRecipeId] = useState<string | null>(() => window.location.pathname.match(/^\/recipe\/shared\/([0-9a-f-]{36})\/?$/i)?.[1] || null)
 
   useEffect(() => {
@@ -175,6 +176,16 @@ function App() {
   }, [profile, demoMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { localStorage.setItem('last-main-tab', tab) }, [tab])
+
+  useEffect(() => {
+    if (!profile || sharedRecipeId) return
+    setOnboardingOpen(localStorage.getItem(`onboarding-complete:${profile.id}`) !== 'true')
+  }, [profile, sharedRecipeId])
+
+  const completeOnboarding = () => {
+    if (profile) localStorage.setItem(`onboarding-complete:${profile.id}`, 'true')
+    setOnboardingOpen(false)
+  }
 
   const openNotificationTarget = (notification: AppNotification) => {
     setNotificationsOpen(false)
@@ -227,8 +238,29 @@ function App() {
       {movingItem && data && <MoveItemSheet item={movingItem} spaces={data.spaces} onClose={() => setMovingItem(null)} onMove={async (targetId) => { if (demoMode) return showAppAlert('미리보기에서는 실제 이동이 저장되지 않아요.'); await moveInventoryItem(movingItem, targetId, profile?.id || ''); setMovingItem(null); await refresh() }} />}
       {consumingItem && <ConsumeItemSheet item={consumingItem} onClose={() => setConsumingItem(null)} onConsume={async (amount) => { if (demoMode) return showAppAlert('미리보기에서는 실제 변경이 저장되지 않아요.'); await consumeInventoryItems([{ item: consumingItem, amount }]); setConsumingItem(null); await refresh() }} />}
       {sharedRecipeId && data && !demoMode && <SharedRecipeSheet shareId={sharedRecipeId} items={data.items} onClose={() => { window.history.replaceState({}, '', '/'); setSharedRecipeId(null) }} onSaved={refresh} />}
+      {onboardingOpen && profile && <AppOnboarding onComplete={completeOnboarding} />}
     </div>
   )
+}
+
+const onboardingSlides = [
+  { eyebrow: '내 공간부터 차근차근', title: '우리 집 수납공간을\n그대로 담아요', description: '냉장고와 냉동실, 수납장을 만들고 실제 배치처럼 주방맵에서 한눈에 확인하세요.', kind: 'map' },
+  { eyebrow: '하나씩도, 한 번에도', title: '식재료 등록을\n더 빠르고 간편하게', description: '바코드 스캔과 직접 입력은 물론, 영수증으로 여러 상품을 한꺼번에 등록할 수 있어요.', kind: 'add' },
+  { eyebrow: '먹은 만큼 정확하게', title: '기한과 재고를\n놓치지 않게 관리해요', description: '어디에 무엇이 있는지 확인하고, 식사에 사용한 여러 식재료의 수량을 한 번에 줄여요.', kind: 'consume' },
+  { eyebrow: '있는 재료를 알차게', title: '오늘의 요리부터\n다음 장보기까지', description: '보유 재료 기반 레시피를 추천받고, 내 레시피북과 장보기 체크리스트까지 이어서 관리하세요.', kind: 'recipe' },
+] as const
+
+function OnboardingVisual({ kind }: { kind: typeof onboardingSlides[number]['kind'] }) {
+  if (kind === 'map') return <div className="onboarding-map"><span><CabinetIcon /><b>상 수납장</b><small>4개 보관 중</small></span><span><CabinetIcon /><b>중간 수납장</b><small>2개 보관 중</small></span><span className="cold"><Refrigerator /><b>냉장고</b><small>7개 보관 중</small></span><span><Box /><b>싱크대 위</b><small>2개 보관 중</small></span><span className="cold"><Snowflake /><b>냉동실</b><small>3개 보관 중</small></span></div>
+  if (kind === 'add') return <div className="onboarding-add"><div className="onboarding-add-tabs"><span className="active"><ScanLine /> 바코드</span><span><PenLine /> 직접 입력</span><span><ReceiptText /> 영수증</span></div><div className="onboarding-scan"><div><i /><i /><i /><i /></div><small>카메라로 상품 바코드를 비춰 주세요.</small></div><div className="onboarding-product"><span>🍚</span><div><b>햇반</b><small>곡류/면 · 3개</small></div><Check /></div></div>
+  if (kind === 'consume') return <div className="onboarding-consume"><div className="onboarding-consume-head"><UtensilsCrossed /><span><b>무엇을 사용했나요?</b><small>사용한 만큼 수량을 조절하세요.</small></span></div>{[['🥩','성수동 순살 족발','1개'],['🍚','햇반','2개'],['🥟','한입떡갈비','1개']].map(([icon,name,count]) => <div className="onboarding-consume-row" key={name}><span>{icon}</span><div><b>{name}</b><small>냉장고에 있어요</small></div><i>−</i><strong>{count}</strong><i>＋</i></div>)}</div>
+  return <div className="onboarding-recipe"><div className="onboarding-recipe-card"><span>🍲</span><div><small>집에 있는 재료로 추천</small><b>참치마요 덮밥</b><p><Check /> 보유 재료 2개</p></div><ChevronRight /></div><div className="onboarding-checklist"><ShoppingBasket /><div><b>장보기 체크리스트</b><small>필요한 재료를 잊지 않게</small></div><span>3</span></div><div className="onboarding-books"><BookOpen /><b>내 레시피북</b><span>저장한 요리 8개</span></div></div>
+}
+
+function AppOnboarding({ onComplete }: { onComplete: () => void }) {
+  const [page, setPage] = useState(0)
+  const slide = onboardingSlides[page]
+  return <div className="app-onboarding" data-prevent-app-reload="true"><header><b><span>집</span>에뭐있지</b><button onClick={onComplete}>건너뛰기</button></header><main><div className="onboarding-copy"><span>{slide.eyebrow}</span><h1>{slide.title.split('\n').map((line, index) => <span key={line}>{line}{index === 0 && <br />}</span>)}</h1><p>{slide.description}</p></div><OnboardingVisual kind={slide.kind} /></main><footer><div className="onboarding-dots">{onboardingSlides.map((_, index) => <button aria-label={`${index + 1}페이지`} className={index === page ? 'active' : ''} onClick={() => setPage(index)} key={index} />)}</div><button className="onboarding-next" onClick={() => page === onboardingSlides.length - 1 ? onComplete() : setPage((current) => current + 1)}>{page === onboardingSlides.length - 1 ? '집에뭐있지 시작하기' : '다음'} <ChevronRight /></button></footer></div>
 }
 
 function KitchenSetup({ kitchenId, mapId, onCreated }: { kitchenId: string; mapId: string; onCreated: () => Promise<void> }) {
