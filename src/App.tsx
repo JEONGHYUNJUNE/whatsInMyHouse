@@ -664,12 +664,14 @@ function SpaceForm({ space, maps, initialMapId, kitchenId, demoMode, onClose, on
 
 function SearchScreen({ data, query, setQuery, profileId, demoMode, onSelectItem, onChanged }: { data: AppData; query: string; setQuery: (v: string) => void; profileId: string; demoMode: boolean; onSelectItem: (item: InventoryItem) => void; onChanged: () => Promise<void> }) {
   const [spaceFilter, setSpaceFilter] = useState('all')
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>(() => localStorage.getItem(`inventory-sort:${data.kitchen.id}`) === 'oldest' ? 'oldest' : 'newest')
   const [movingItem, setMovingItem] = useState<InventoryItem | null>(null)
   const [consumingItem, setConsumingItem] = useState<InventoryItem | null>(null)
   const results = useMemo(() => data.items.filter((item) => {
     const haystack = `${item.product_name} ${item.alias || ''} ${item.memo || ''} ${item.category || ''} ${item.storage_spaces?.name || ''}`.toLowerCase()
     return haystack.includes(query.toLowerCase()) && (spaceFilter === 'all' || item.storage_space_id === spaceFilter)
-  }), [data.items, query, spaceFilter])
+  }).sort((a, b) => sortOrder === 'newest' ? b.created_at.localeCompare(a.created_at) : a.created_at.localeCompare(b.created_at)), [data.items, query, sortOrder, spaceFilter])
+  useEffect(() => { localStorage.setItem(`inventory-sort:${data.kitchen.id}`, sortOrder) }, [data.kitchen.id, sortOrder])
 
   const move = async (item: InventoryItem, targetId: string) => {
     if (targetId === item.storage_space_id) return setMovingItem(null)
@@ -686,7 +688,7 @@ function SearchScreen({ data, query, setQuery, profileId, demoMode, onSelectItem
     <div className="page-heading"><div><p>집 안의 모든 식재료</p><h1>통합 검색</h1></div></div>
     <label className="global-search"><Search /><input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="상품명, 별칭, 메모를 검색하세요" />{query && <button onClick={() => setQuery('')}><X /></button>}</label>
     <div className="filter-chips"><button className={spaceFilter === 'all' ? 'active' : ''} onClick={() => setSpaceFilter('all')}>전체 {data.items.length}</button>{data.spaces.map((space) => <button className={spaceFilter === space.id ? 'active' : ''} onClick={() => setSpaceFilter(space.id)} key={space.id}>{space.name}</button>)}</div>
-    <div className="result-count">검색 결과 <b>{results.length}</b>개</div>
+    <div className="search-result-toolbar"><div className="result-count">검색 결과 <b>{results.length}</b>개</div><label><span>정렬</span><select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as 'newest' | 'oldest')}><option value="newest">최근 등록순</option><option value="oldest">오래된 등록순</option></select></label></div>
     <div className="item-list">{results.length ? results.map((item) => <article className="inventory-row" key={item.id} role="button" tabIndex={0} onClick={() => onSelectItem(item)} onKeyDown={(event) => { if (event.key === 'Enter') onSelectItem(item) }}><ItemThumb item={item} /><div><h3>{item.product_name}</h3><p>{item.storage_spaces?.name} {item.storage_spaces?.alias ? `· ${item.storage_spaces.alias}` : ''}</p><small>{item.quantity}{item.unit} · {dateLabel(item)}</small></div><div className="row-actions"><button onClick={(event) => { event.stopPropagation(); setMovingItem(item) }}>이동</button><button onClick={(event) => { event.stopPropagation(); void finish(item, 'consumed') }}>소진</button><button onClick={(event) => { event.stopPropagation(); void finish(item, 'discarded') }}>폐기</button></div></article>) : <div className="no-results"><Search /><p>{query ? '검색 결과가 없어요.' : '등록된 식재료가 없어요.'}</p></div>}</div>
     {movingItem && <MoveItemSheet item={movingItem} spaces={data.spaces} onClose={() => setMovingItem(null)} onMove={(targetId) => move(movingItem, targetId)} />}
     {consumingItem && <ConsumeItemSheet item={consumingItem} onClose={() => setConsumingItem(null)} onConsume={async (amount) => { if (demoMode) return showAppAlert('미리보기에서는 실제 변경이 저장되지 않아요.'); await consumeInventoryItems([{ item: consumingItem, amount }]); setConsumingItem(null); await onChanged() }} />}
