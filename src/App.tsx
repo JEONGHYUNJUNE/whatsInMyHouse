@@ -1025,15 +1025,16 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
 type ReceiptCandidate = { id: string; name: string; quantity: number; unit: string; spaceId: string; selected: boolean; deadlineType: DeadlineType; deadlineDate: string; purchasedAt: string }
 
 function receiptCandidatesFromText(text: string, defaultSpaceId: string) {
-  const ignored = /^(합계|총액|과세|면세|부가세|공급가|결제|카드|현금|거스름|승인|영수증|사업자|대표|전화|주소|일시|날짜|시간|품명|단가|수량|금액|할인|소계|봉투|vat|total)/i
+  const ignored = /^(합계|총액|과세|면세|부가세|공급가|결제|카드|현금|거스름|승인|영수증|사업자|대표|전화|주소|일시|날짜|시간|품명|단가|수량|금액|할인|소계|봉투|포인트|쿠폰|신용|체크|가맹|카드번호|할부|vat|total|pos)/i
+  const noise = /(감사합니다|교환|환불|문의|고객|행사|증정|무료|적립|승인번호|회원번호|http|www\.|tel[:.]?)/i
   const candidates: ReceiptCandidate[] = []
   for (const rawLine of text.split(/\r?\n/)) {
-    let line = rawLine.replace(/[|_[\]{}]/g, ' ').replace(/\s+/g, ' ').trim()
-    if (!line || line.length < 2 || ignored.test(line) || /^[-=*#\d,.\s]+$/.test(line)) continue
+    let line = rawLine.replace(/[|_[\]{}]/g, ' ').replace(/[“”'`]/g, '').replace(/\s+/g, ' ').trim()
+    if (!line || line.length < 2 || ignored.test(line) || noise.test(line) || /^[-=*#\d,.\s]+$/.test(line)) continue
     if (/\d{2,4}[./-]\d{1,2}[./-]\d{1,2}/.test(line)) continue
     line = line.replace(/^\d{1,3}\s+/, '')
-    const hasPrice = /(?:^|\s)[-+]?\d{1,3}(?:[,.]\d{3})+(?:\s*원)?\s*$/.test(line)
-    line = line.replace(/\s+[-+]?\d{1,3}(?:[,.]\d{3})+(?:\s*원)?\s*$/, '').trim()
+    const hasPrice = /(?:^|\s)[-+]?\d{1,3}(?:[,.]\d{3})+|(?:^|\s)\d{3,7}\s*원?\s*$/.test(line)
+    line = line.replace(/\s+[-+]?\d{1,3}(?:[,.]\d{3})+(?:\s*원)?\s*$/, '').replace(/\s+\d{3,7}\s*원?\s*$/, '').trim()
     let quantity = 1
     const quantityMatch = line.match(/(?:\s|^)(\d{1,2})\s*(개|팩|봉|병|통|판|단)\s*$/)
     if (quantityMatch) {
@@ -1041,8 +1042,10 @@ function receiptCandidatesFromText(text: string, defaultSpaceId: string) {
       line = line.slice(0, quantityMatch.index).trim()
     } else line = line.replace(/\s+\d+\s*[xX*]\s*\d[\d,]*\s*$/, '').trim()
     line = line.replace(/\s+\d[\d,.]*\s*원?\s*$/, '').trim()
-    if (!hasPrice) continue
-    if (line.length < 2 || !/[가-힣A-Za-z]/.test(line)) continue
+    const letters = (line.match(/[가-힣A-Za-z]/g) || []).length
+    const digits = (line.match(/\d/g) || []).length
+    if (!hasPrice && (letters < 3 || line.length > 32 || digits > letters)) continue
+    if (line.length < 2 || letters < 2) continue
     const normalized = line.slice(0, 45)
     if (candidates.some((item) => item.name === normalized)) continue
     candidates.push({ id: crypto.randomUUID(), name: normalized, quantity, unit: '개', spaceId: defaultSpaceId, selected: true, deadlineType: 'purchase', deadlineDate: todayDate(), purchasedAt: todayDate() })
@@ -1050,18 +1053,70 @@ function receiptCandidatesFromText(text: string, defaultSpaceId: string) {
   return candidates.slice(0, 50)
 }
 
-async function preprocessReceiptImage(file: File) {
+function otsuThreshold(data: Uint8ClampedArray) {
+  const histogram = new Array<number>(256).fill(0)
+  for (let index = 0; index < data.length; index += 4) histogram[data[index]]++
+  const total = data.length / 4
+  let sum = 0
+  for (let index = 0; index < 256; index++) sum += index * histogram[index]
+  let backgroundWeight = 0; let backgroundSum = 0; let bestVariance = 0; let threshold = 160
+  for (let index = 0; index < 256; index++) {
+    backgroundWeight += histogram[index]
+    if (!backgroundWeight) continue
+    const foregroundWeight = total - backgroundWeight
+    if (!foregroundWeight) break
+    backgroundSum += index * histogram[index]
+    const meanDifference = backgroundSum / backgroundWeight - (sum - backgroundSum) / foregroundWeight
+    const variance = backgroundWeight * foregroundWeight * meanDifference * meanDifference
+    if (variance > bestVariance) { bestVariance = variance; threshold = index }
+  }
+  return Math.max(105, Math.min(205, threshold))
+}
+
+async function preprocessReceiptImages(file: File) {
   const bitmap = await createImageBitmap(file)
-  const scale = Math.min(2.4, 2200 / bitmap.width)
+  const scale = Math.min(3, Math.max(1, 1800 / bitmap.width), 2400 / bitmap.width)
   const canvas = document.createElement('canvas')
-  canvas.width = Math.max(bitmap.width, Math.round(bitmap.width * scale))
-  canvas.height = Math.max(bitmap.height, Math.round(bitmap.height * scale))
+  canvas.width = Math.round(bitmap.width * scale)
+  canvas.height = Math.round(bitmap.height * scale)
   const context = canvas.getContext('2d')
-  if (!context) { bitmap.close(); return file }
-  context.filter = 'grayscale(1) contrast(1.65) brightness(1.08)'
+  if (!context) { bitmap.close(); return [file] }
+  context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height)
+  context.filter = 'grayscale(1) contrast(1.45) brightness(1.08)'
   context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
   bitmap.close()
-  return await new Promise<Blob>((resolve) => canvas.toBlob((blob) => resolve(blob || file), 'image/jpeg', .92))
+  const sourceImage = context.getImageData(0, 0, canvas.width, canvas.height)
+  const sourceThreshold = otsuThreshold(sourceImage.data)
+  let minX = canvas.width; let minY = canvas.height; let maxX = 0; let maxY = 0
+  for (let y = 0; y < canvas.height; y += 2) for (let x = 0; x < canvas.width; x += 2) {
+    const index = (y * canvas.width + x) * 4
+    if (sourceImage.data[index] < sourceThreshold * .86) { minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y) }
+  }
+  const marginX = Math.round(canvas.width * .035); const marginY = Math.round(canvas.height * .025)
+  const hasContentBounds = maxX > minX && maxY > minY && (maxX - minX) > canvas.width * .45 && (maxY - minY) > canvas.height * .45
+  const cropX = hasContentBounds ? Math.max(0, minX - marginX) : 0
+  const cropY = hasContentBounds ? Math.max(0, minY - marginY) : 0
+  const cropWidth = hasContentBounds ? Math.min(canvas.width - cropX, maxX - minX + marginX * 2) : canvas.width
+  const cropHeight = hasContentBounds ? Math.min(canvas.height - cropY, maxY - minY + marginY * 2) : canvas.height
+  const croppedCanvas = document.createElement('canvas')
+  croppedCanvas.width = cropWidth; croppedCanvas.height = cropHeight
+  const croppedContext = croppedCanvas.getContext('2d')
+  if (!croppedContext) return [file]
+  croppedContext.fillStyle = '#fff'; croppedContext.fillRect(0, 0, cropWidth, cropHeight)
+  croppedContext.drawImage(canvas, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight)
+  const image = croppedContext.getImageData(0, 0, cropWidth, cropHeight)
+  const threshold = otsuThreshold(image.data)
+  const binaryCanvas = document.createElement('canvas')
+  binaryCanvas.width = cropWidth; binaryCanvas.height = cropHeight
+  const binaryContext = binaryCanvas.getContext('2d')
+  if (!binaryContext) return [file]
+  for (let index = 0; index < image.data.length; index += 4) {
+    const value = image.data[index] < threshold ? 0 : 255
+    image.data[index] = value; image.data[index + 1] = value; image.data[index + 2] = value; image.data[index + 3] = 255
+  }
+  binaryContext.putImageData(image, 0, 0)
+  const toBlob = (source: HTMLCanvasElement, quality: number) => new Promise<Blob>((resolve) => source.toBlob((blob) => resolve(blob || file), 'image/jpeg', quality))
+  return Promise.all([toBlob(croppedCanvas, .94), toBlob(binaryCanvas, .98)])
 }
 
 function receiptDateFromText(text: string) {
@@ -1084,13 +1139,25 @@ function ReceiptScanner({ data, profileId, initialSpaceId, demoMode, onSaved }: 
     setImageUrl(URL.createObjectURL(file)); setCandidates([]); setRecognizing(true); setProgress(0)
     try {
       const { createWorker, PSM } = await import('tesseract.js')
-      const worker = await createWorker(['kor', 'eng'], undefined, { logger: (message) => { if (message.status === 'recognizing text') setProgress(Math.round((message.progress || 0) * 100)) } })
+      let pass = 0
+      const worker = await createWorker(['kor', 'eng'], undefined, { logger: (message) => { if (message.status === 'recognizing text') setProgress(Math.round((pass * 50) + (message.progress || 0) * 50)) } })
+      const processedImages = await preprocessReceiptImages(file)
       await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK, preserve_interword_spaces: '1', user_defined_dpi: '300' })
-      const processedImage = await preprocessReceiptImage(file)
-      const result = await worker.recognize(processedImage)
+      const blockResult = await worker.recognize(processedImages[0])
+      pass = 1
+      await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT, preserve_interword_spaces: '1', user_defined_dpi: '300' })
+      const sparseResult = await worker.recognize(processedImages[1] || processedImages[0])
       await worker.terminate()
-      const next = receiptCandidatesFromText(result.data.text, initialSpaceId || data.spaces[0]?.id || '')
-      const receiptDate = receiptDateFromText(result.data.text)
+      const defaultSpaceId = initialSpaceId || data.spaces[0]?.id || ''
+      const results = [blockResult, sparseResult].map((result) => {
+        const items = receiptCandidatesFromText(result.data.text, defaultSpaceId)
+        const koreanLetters = (result.data.text.match(/[가-힣]/g) || []).length
+        const score = (result.data.confidence || 0) + Math.min(items.length, 15) * 8 + Math.min(koreanLetters, 120) * .15
+        return { result, items, score }
+      }).sort((a, b) => b.score - a.score)
+      const best = results[0]
+      const next = best.items
+      const receiptDate = receiptDateFromText(best.result.data.text)
       setCandidates(next.map((item) => ({ ...item, deadlineDate: receiptDate, purchasedAt: receiptDate })))
       if (!next.length) void showAppAlert('상품으로 판단할 글자를 찾지 못했어요. 영수증을 밝고 평평하게 촬영해 다시 시도해 주세요.', '인식 결과가 없어요', 'warning')
     } catch (error) { void showAppAlert(error instanceof Error ? error.message : '영수증을 인식하지 못했습니다.', 'OCR 처리 실패', 'danger') }
