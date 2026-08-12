@@ -254,8 +254,23 @@ function OnboardingVisual({ kind }: { kind: typeof onboardingSlides[number]['kin
 
 function AppOnboarding({ onComplete }: { onComplete: () => void }) {
   const [page, setPage] = useState(0)
+  const [direction, setDirection] = useState<'next' | 'prev'>('next')
+  const touchStartX = useRef<number | null>(null)
   const slide = onboardingSlides[page]
-  return <div className="app-onboarding" data-prevent-app-reload="true"><header><b><span>집</span>에뭐있지</b><button onClick={onComplete}>건너뛰기</button></header><main><div className="onboarding-copy"><span>{slide.eyebrow}</span><h1>{slide.title.split('\n').map((line, index) => <span key={line}>{line}{index === 0 && <br />}</span>)}</h1><p>{slide.description}</p></div><OnboardingVisual kind={slide.kind} /></main><footer><div className="onboarding-dots">{onboardingSlides.map((_, index) => <button aria-label={`${index + 1}페이지`} className={index === page ? 'active' : ''} onClick={() => setPage(index)} key={index} />)}</div><button className="onboarding-next" onClick={() => page === onboardingSlides.length - 1 ? onComplete() : setPage((current) => current + 1)}>{page === onboardingSlides.length - 1 ? '집에뭐있지 시작하기' : '다음'} <ChevronRight /></button></footer></div>
+  const goTo = (nextPage: number) => {
+    const bounded = Math.max(0, Math.min(onboardingSlides.length - 1, nextPage))
+    if (bounded === page) return
+    setDirection(bounded > page ? 'next' : 'prev')
+    setPage(bounded)
+  }
+  const finishSwipe = (endX: number) => {
+    if (touchStartX.current === null) return
+    const distance = endX - touchStartX.current
+    touchStartX.current = null
+    if (Math.abs(distance) < 48) return
+    goTo(distance < 0 ? page + 1 : page - 1)
+  }
+  return <div className="app-onboarding" data-prevent-app-reload="true"><header><b><span>집</span>에뭐있지</b><button onClick={onComplete}>건너뛰기</button></header><main className="onboarding-swipe-area" onTouchStart={(event) => { touchStartX.current = event.touches[0]?.clientX ?? null }} onTouchCancel={() => { touchStartX.current = null }} onTouchEnd={(event) => finishSwipe(event.changedTouches[0]?.clientX ?? 0)}><div className={`onboarding-slide slide-${direction}`} key={page}><div className="onboarding-copy"><span>{slide.eyebrow}</span><h1>{slide.title.split('\n').map((line, index) => <span key={line}>{line}{index === 0 && <br />}</span>)}</h1><p>{slide.description}</p></div><OnboardingVisual kind={slide.kind} /></div></main><footer><div className="onboarding-dots">{onboardingSlides.map((_, index) => <button aria-label={`${index + 1}페이지`} className={index === page ? 'active' : ''} onClick={() => goTo(index)} key={index} />)}</div><button className="onboarding-next" onClick={() => page === onboardingSlides.length - 1 ? onComplete() : goTo(page + 1)}>{page === onboardingSlides.length - 1 ? '집에뭐있지 시작하기' : '다음'} <ChevronRight /></button></footer></div>
 }
 
 function KitchenSetup({ kitchenId, mapId, onCreated }: { kitchenId: string; mapId: string; onCreated: () => Promise<void> }) {
