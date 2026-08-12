@@ -27,6 +27,18 @@ async function fetchHaccpProduct(serviceKey: string, reportNo: string) {
   return (Array.isArray(items) ? items[0] : items) as FoodSafetyRow | null
 }
 
+async function fetchOpenFoodFactsImage(barcode: string) {
+  const url = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}?fields=image_front_small_url,image_front_url,image_url`
+  const response = await fetch(url, {
+    headers: { 'User-Agent': 'WhatsInMyHouse/1.0 (barcode image lookup)' },
+    signal: AbortSignal.timeout(7000),
+  })
+  if (!response.ok) return ''
+  const json = await response.json()
+  const product = json?.product
+  return product?.image_front_small_url || product?.image_front_url || product?.image_url || ''
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   try {
@@ -37,9 +49,9 @@ Deno.serve(async (request) => {
     if (!apiKey) return Response.json({ found: false, reason: 'api_key_not_configured' }, { status: 503, headers: corsHeaders })
 
     const distributionRows = await fetchFoodSafety('I2570', apiKey, `BRCD_NO=${encodeURIComponent(barcode)}`)
-    const distributionProduct = distributionRows.find((row) => String(row.BRCD_NO || '').replace(/\D/g, '') === barcode) || distributionRows[0]
+    const distributionProduct = distributionRows.find((row) => String(row.BRCD_NO || '').replace(/\D/g, '') === barcode)
     const linkedRows = distributionProduct ? [] : await fetchFoodSafety('C005', apiKey, `BAR_CD=${encodeURIComponent(barcode)}`)
-    const linkedProduct = linkedRows.find((row) => String(row.BAR_CD || '').replace(/\D/g, '') === barcode) || linkedRows[0]
+    const linkedProduct = linkedRows.find((row) => String(row.BAR_CD || '').replace(/\D/g, '') === barcode)
     const barcodeProduct = distributionProduct || linkedProduct
     if (!barcodeProduct) return Response.json({ found: false }, { headers: corsHeaders })
 
@@ -50,13 +62,15 @@ Deno.serve(async (request) => {
     const haccp = reportNo && publicDataKey ? await fetchHaccpProduct(publicDataKey, reportNo).catch(() => null) : null
     const name = product?.PRDLST_NM || barcodeProduct.PRDT_NM || barcodeProduct.PRDLST_NM || haccp?.prdlstNm || ''
     if (!name.trim()) return Response.json({ found: false, reason: 'missing_product_name' }, { headers: corsHeaders })
+    const domesticImageUrl = haccp?.productImg || haccp?.imgurl || haccp?.imgUrl || ''
+    const imageUrl = domesticImageUrl || await fetchOpenFoodFactsImage(barcode).catch(() => '')
 
     return Response.json({
       found: true,
       name,
       brand: product?.BSSH_NM || barcodeProduct.CMPNY_NM || barcodeProduct.BSSH_NM || haccp?.manufacture || '',
       category: product?.PRDLST_DCNM || barcodeProduct.PRDLST_DCNM || barcodeProduct.PRDLST_NM || barcodeProduct.HRNK_PRDLST_NM || haccp?.prdkind || '',
-      imageUrl: haccp?.productImg || haccp?.imgurl || haccp?.imgUrl || '',
+      imageUrl,
       reportNo,
       source: distributionProduct ? 'foodsafety_i2570' : 'foodsafety_c005',
     }, { headers: { ...corsHeaders, 'Cache-Control': 'public, max-age=86400' } })
