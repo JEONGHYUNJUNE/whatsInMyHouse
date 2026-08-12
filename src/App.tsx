@@ -1022,17 +1022,41 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
   </div>
 }
 
-type ReceiptCandidate = { id: string; name: string; quantity: number; unit: string; spaceId: string; selected: boolean; deadlineType: DeadlineType; deadlineDate: string; purchasedAt: string }
+type ReceiptCandidate = { id: string; name: string; quantity: number; unit: string; spaceId: string; selected: boolean; deadlineType: DeadlineType; deadlineDate: string; purchasedAt: string; barcode?: string; catalogId?: string | null; category?: string }
 
 function receiptCandidatesFromText(text: string, defaultSpaceId: string) {
   const ignored = /^(합계|총액|과세|면세|부가세|공급가|결제|카드|현금|거스름|승인|영수증|사업자|대표|전화|주소|일시|날짜|시간|품명|단가|수량|금액|할인|소계|봉투|포인트|쿠폰|신용|체크|가맹|카드번호|할부|vat|total|pos)/i
   const noise = /(감사합니다|교환|환불|문의|고객|행사|증정|무료|적립|승인번호|회원번호|http|www\.|tel[:.]?)/i
   const candidates: ReceiptCandidate[] = []
-  for (const rawLine of text.split(/\r?\n/)) {
+  const rawLines = text.split(/\r?\n/)
+  const productHeaderIndex = rawLines.findIndex((line) => /(상품|품명).*(단가|수량|금액)|(단가|수량).*(상품|품명)/i.test(line.replace(/\s+/g, '')))
+  const totalIndex = rawLines.findIndex((line, index) => index > Math.max(0, productHeaderIndex) && /^(총\s*(구매|매|액)|합\s*계|결제\s*금액|받을\s*금액|과세\s*물품)/i.test(line.trim()))
+  const lines = productHeaderIndex >= 0 && totalIndex > productHeaderIndex
+    ? rawLines.slice(productHeaderIndex + 1, totalIndex)
+    : rawLines
+  let pendingNumbered: ReceiptCandidate | null = null
+  const addCandidate = (candidate: ReceiptCandidate) => {
+    const key = candidate.barcode || candidate.name.replace(/\s+/g, '').toLowerCase()
+    const existing = candidates.find((item) => (item.barcode || item.name.replace(/\s+/g, '').toLowerCase()) === key)
+    if (existing) {
+      if (!existing.barcode && candidate.barcode) existing.barcode = candidate.barcode
+      existing.quantity = Math.max(existing.quantity, candidate.quantity)
+      return existing
+    }
+    candidates.push(candidate); return candidate
+  }
+  for (const rawLine of lines) {
     let line = rawLine.replace(/[|_[\]{}]/g, ' ').replace(/[“”'`]/g, '').replace(/\s+/g, ' ').trim()
-    if (!line || line.length < 2 || ignored.test(line) || noise.test(line) || /^[-=*#\d,.\s]+$/.test(line)) continue
+    const barcode = line.match(/(?:^|\D)(\d{8,14})(?:\D|$)/)?.[1]
+    if (!line || line.length < 2 || ignored.test(line) || noise.test(line) || (/^[-=*#\d,.\s]+$/.test(line) && !barcode)) continue
     if (/\d{2,4}[./-]\d{1,2}[./-]\d{1,2}/.test(line)) continue
-    line = line.replace(/^\d{1,3}\s+/, '')
+    if (barcode && pendingNumbered && /^\s*\*?\d{8,14}(?:\s|$)/.test(line)) {
+      pendingNumbered.barcode = barcode
+      pendingNumbered = null
+      continue
+    }
+    const numbered = line.match(/^\s*(\d{1,3})[.)]?\s+(.+)$/)
+    if (numbered) line = numbered[2]
     const hasPrice = /(?:^|\s)[-+]?\d{1,3}(?:[,.]\d{3})+|(?:^|\s)\d{3,7}\s*원?\s*$/.test(line)
     line = line.replace(/\s+[-+]?\d{1,3}(?:[,.]\d{3})+(?:\s*원)?\s*$/, '').replace(/\s+\d{3,7}\s*원?\s*$/, '').trim()
     let quantity = 1
@@ -1046,9 +1070,10 @@ function receiptCandidatesFromText(text: string, defaultSpaceId: string) {
     const digits = (line.match(/\d/g) || []).length
     if (!hasPrice && (letters < 3 || line.length > 32 || digits > letters)) continue
     if (line.length < 2 || letters < 2) continue
-    const normalized = line.slice(0, 45)
-    if (candidates.some((item) => item.name === normalized)) continue
-    candidates.push({ id: crypto.randomUUID(), name: normalized, quantity, unit: '개', spaceId: defaultSpaceId, selected: true, deadlineType: 'purchase', deadlineDate: todayDate(), purchasedAt: todayDate() })
+    const normalized = line.replace(/\b\d{8,14}\b/g, '').replace(/^P\s*/i, '').trim().slice(0, 45)
+    if (normalized.length < 2) continue
+    const candidate = addCandidate({ id: crypto.randomUUID(), name: normalized, quantity, unit: '개', spaceId: defaultSpaceId, selected: hasPrice || Boolean(numbered) || Boolean(barcode), deadlineType: 'purchase', deadlineDate: todayDate(), purchasedAt: todayDate(), ...(barcode ? { barcode } : {}) })
+    pendingNumbered = !barcode ? candidate : null
   }
   return candidates.slice(0, 50)
 }
@@ -1121,7 +1146,7 @@ async function preprocessReceiptImages(file: File) {
 
 function receiptDateFromText(text: string) {
   const match = text.match(/(20\d{2}|\d{2})[./-]\s*(\d{1,2})[./-]\s*(\d{1,2})/)
-  if (!match) return todayDate()
+  if (!match) return null
   const year = match[1].length === 2 ? `20${match[1]}` : match[1]
   return `${year}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`
 }
@@ -1156,9 +1181,15 @@ function ReceiptScanner({ data, profileId, initialSpaceId, demoMode, onSaved }: 
         return { result, items, score }
       }).sort((a, b) => b.score - a.score)
       const best = results[0]
-      const next = best.items
-      const receiptDate = receiptDateFromText(best.result.data.text)
-      setCandidates(next.map((item) => ({ ...item, deadlineDate: receiptDate, purchasedAt: receiptDate })))
+      const barcodeItems = results.flatMap(({ items }) => items.filter((item) => item.barcode)).filter((item, index, all) => all.findIndex((other) => other.barcode === item.barcode) === index)
+      const next = [...barcodeItems, ...best.items.filter((item) => !item.barcode && !barcodeItems.some((known) => known.name.replace(/\s+/g, '') === item.name.replace(/\s+/g, '')))].slice(0, 50)
+      const receiptDate = [blockResult.data.text, sparseResult.data.text].map(receiptDateFromText).find(Boolean) || todayDate()
+      const enriched = await Promise.all(next.map(async (item) => {
+        if (!item.barcode) return item
+        const found = await lookupBarcode(item.barcode, profileId, data.kitchen.id).catch(() => null)
+        return found ? { ...item, name: found.name, catalogId: found.catalogId, category: found.category, unit: found.unit || item.unit } : item
+      }))
+      setCandidates(enriched.map((item) => ({ ...item, deadlineDate: receiptDate, purchasedAt: receiptDate })))
       if (!next.length) void showAppAlert('상품으로 판단할 글자를 찾지 못했어요. 영수증을 밝고 평평하게 촬영해 다시 시도해 주세요.', '인식 결과가 없어요', 'warning')
     } catch (error) { void showAppAlert(error instanceof Error ? error.message : '영수증을 인식하지 못했습니다.', 'OCR 처리 실패', 'danger') }
     finally { setRecognizing(false) }
@@ -1169,7 +1200,7 @@ function ReceiptScanner({ data, profileId, initialSpaceId, demoMode, onSaved }: 
     if (demoMode) return showAppAlert(`${selected.length}개 상품의 일괄 등록 흐름을 확인했어요. 로그인 후 실제로 저장됩니다.`)
     setSaving(true)
     try {
-      await Promise.all(selected.map((item) => createInventoryItem({ kitchen_id: data.kitchen.id, storage_space_id: item.spaceId, catalog_product_id: null, created_by: profileId, product_name: item.name.trim(), alias: null, barcode: null, image_path: null, category: null, quantity: Math.max(.1, item.quantity || 1), unit: item.unit, purchased_at: item.purchasedAt, opened_at: null, expiration_date: item.deadlineType === 'expiration' ? item.deadlineDate || null : null, use_by_date: item.deadlineType === 'use_by' ? item.deadlineDate || null : null, recommended_use_date: null, memo: '영수증으로 등록', registration_method: 'bulk' })))
+      await Promise.all(selected.map((item) => createInventoryItem({ kitchen_id: data.kitchen.id, storage_space_id: item.spaceId, catalog_product_id: item.catalogId || null, created_by: profileId, product_name: item.name.trim(), alias: null, barcode: item.barcode || null, image_path: null, category: item.category || null, quantity: Math.max(.1, item.quantity || 1), unit: item.unit, purchased_at: item.purchasedAt, opened_at: null, expiration_date: item.deadlineType === 'expiration' ? item.deadlineDate || null : null, use_by_date: item.deadlineType === 'use_by' ? item.deadlineDate || null : null, recommended_use_date: null, memo: '영수증으로 등록', registration_method: 'bulk' })))
       await onSaved(); void showAppAlert(`${selected.length}개 상품을 저장했어요. 카테고리는 상품 상세에서 보완할 수 있어요.`, '영수증 등록 완료')
     } catch (error) { void showAppAlert(error instanceof Error ? error.message : '상품을 저장하지 못했습니다.', '일괄 저장 실패', 'danger') }
     finally { setSaving(false) }
