@@ -141,7 +141,7 @@ function App() {
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
   const [movingItem, setMovingItem] = useState<InventoryItem | null>(null)
   const [consumingItem, setConsumingItem] = useState<InventoryItem | null>(null)
-  const [onboardingOpen, setOnboardingOpen] = useState(false)
+  const [onboardingOpen, setOnboardingOpen] = useState(() => localStorage.getItem('app-onboarding-complete') !== 'true')
   const [sharedRecipeId, setSharedRecipeId] = useState<string | null>(() => window.location.pathname.match(/^\/recipe\/shared\/([0-9a-f-]{36})\/?$/i)?.[1] || null)
 
   useEffect(() => {
@@ -177,13 +177,8 @@ function App() {
 
   useEffect(() => { localStorage.setItem('last-main-tab', tab) }, [tab])
 
-  useEffect(() => {
-    if (!profile || sharedRecipeId) return
-    setOnboardingOpen(localStorage.getItem(`onboarding-complete:${profile.id}`) !== 'true')
-  }, [profile, sharedRecipeId])
-
   const completeOnboarding = () => {
-    if (profile) localStorage.setItem(`onboarding-complete:${profile.id}`, 'true')
+    localStorage.setItem('app-onboarding-complete', 'true')
     setOnboardingOpen(false)
   }
 
@@ -203,7 +198,8 @@ function App() {
   }
 
   if (loading) return <FullLoader />
-  if (!session && !demoMode) return <LoginPage onSignIn={signInWithCredentials} onSignUp={signUpWithCredentials} onDemo={() => setDemoMode(true)} />
+  if (onboardingOpen && !sharedRecipeId) return <AppOnboarding onComplete={completeOnboarding} />
+  if (!session && !demoMode) return <LoginPage onSignIn={signInWithCredentials} onSignUp={signUpWithCredentials} onDemo={() => setDemoMode(true)} onOpenOnboarding={() => setOnboardingOpen(true)} />
 
   return (
     <div className="app-shell">
@@ -238,7 +234,6 @@ function App() {
       {movingItem && data && <MoveItemSheet item={movingItem} spaces={data.spaces} onClose={() => setMovingItem(null)} onMove={async (targetId) => { if (demoMode) return showAppAlert('미리보기에서는 실제 이동이 저장되지 않아요.'); await moveInventoryItem(movingItem, targetId, profile?.id || ''); setMovingItem(null); await refresh() }} />}
       {consumingItem && <ConsumeItemSheet item={consumingItem} onClose={() => setConsumingItem(null)} onConsume={async (amount) => { if (demoMode) return showAppAlert('미리보기에서는 실제 변경이 저장되지 않아요.'); await consumeInventoryItems([{ item: consumingItem, amount }]); setConsumingItem(null); await refresh() }} />}
       {sharedRecipeId && data && !demoMode && <SharedRecipeSheet shareId={sharedRecipeId} items={data.items} onClose={() => { window.history.replaceState({}, '', '/'); setSharedRecipeId(null) }} onSaved={refresh} />}
-      {onboardingOpen && profile && <AppOnboarding onComplete={completeOnboarding} />}
     </div>
   )
 }
@@ -315,7 +310,7 @@ function DataLoadError({ onRetry }: { onRetry: () => Promise<void> }) {
   return <section className="data-error"><Box /><h2>주방을 불러오지 못했어요</h2><p>데모 데이터는 표시하지 않았습니다.<br />연결 상태를 확인하고 다시 시도해 주세요.</p><button onClick={() => void onRetry()}>다시 시도</button></section>
 }
 
-function LoginPage({ onSignIn, onSignUp, onDemo }: { onSignIn: (username: string, password: string) => Promise<void>; onSignUp: (username: string, password: string, nickname: string) => Promise<void>; onDemo: () => void }) {
+function LoginPage({ onSignIn, onSignUp, onDemo, onOpenOnboarding }: { onSignIn: (username: string, password: string) => Promise<void>; onSignUp: (username: string, password: string, nickname: string) => Promise<void>; onDemo: () => void; onOpenOnboarding: () => void }) {
   const [busy, setBusy] = useState(false)
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [username, setUsername] = useState('')
@@ -344,6 +339,7 @@ function LoginPage({ onSignIn, onSignUp, onDemo }: { onSignIn: (username: string
       <button className="google-button" type="submit" disabled={busy || !isSupabaseConfigured}>{busy ? <LoaderCircle className="spin" /> : mode === 'login' ? '로그인' : '가입하고 시작하기'}</button>
     </form>
     <button className="demo-button" onClick={onDemo}>로그인 없이 둘러보기</button>
+    <button className="intro-button" onClick={onOpenOnboarding}><Sparkles /> 앱 소개 다시 보기</button>
     {!isSupabaseConfigured && <small>Supabase 환경변수가 필요합니다.</small>}
   </main>
 }
