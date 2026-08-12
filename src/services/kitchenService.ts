@@ -369,6 +369,24 @@ export async function updateSharedBarcodeProduct(product: ProductCatalogItem, in
   return { imageWarning }
 }
 
+export async function createSharedBarcodeProduct(barcode: string, input: { productName: string; brand?: string; category?: string; unit?: string; imageUrl?: string }) {
+  let archivedImageUrl: string | null = null
+  let imageWarning = ''
+  try { archivedImageUrl = await archiveBarcodeImage(barcode, input.imageUrl) }
+  catch (error) { imageWarning = error instanceof Error ? error.message : '상품 이미지를 공용 저장소에 보관하지 못했습니다.' }
+  const { error } = await supabase.from('product_catalog').insert({
+    barcode,
+    product_name: input.productName.trim(),
+    brand: input.brand?.trim() || null,
+    category: input.category?.trim() || null,
+    default_unit: input.unit || '개',
+    image_url: archivedImageUrl,
+    data_source: 'admin',
+  })
+  if (error) throw error.code === '23505' ? new Error('이미 공용 상품으로 등록된 바코드입니다.') : error
+  return { imageWarning }
+}
+
 export async function deleteSharedBarcodeProduct(product: ProductCatalogItem) {
   const { error } = await supabase.from('product_catalog').delete().eq('id', product.id)
   if (error) throw error
