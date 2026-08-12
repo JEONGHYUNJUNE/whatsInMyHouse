@@ -308,14 +308,20 @@ export async function loadSharedBarcodeProducts() {
   return (data || []) as ProductCatalogItem[]
 }
 
-async function archiveBarcodeImage(barcode: string, sourceUrl?: string) {
-  if (!sourceUrl?.trim()) return null
-
-  const response = await fetch(sourceUrl.trim())
-  if (!response.ok) throw new Error('상품 이미지를 불러오지 못했습니다.')
-  const contentType = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() || ''
+async function archiveBarcodeImage(barcode: string, source?: string | File | null) {
+  if (!source || (typeof source === 'string' && !source.trim())) return null
+  let blob: Blob
+  let contentType: string
+  if (typeof source === 'string') {
+    const response = await fetch(source.trim())
+    if (!response.ok) throw new Error('상품 이미지를 불러오지 못했습니다.')
+    contentType = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() || ''
+    blob = await response.blob()
+  } else {
+    contentType = source.type.toLowerCase()
+    blob = source
+  }
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(contentType)) throw new Error('지원하지 않는 상품 이미지 형식입니다.')
-  const blob = await response.blob()
   if (blob.size > 5 * 1024 * 1024) throw new Error('상품 이미지는 5MB 이하만 보관할 수 있습니다.')
 
   const path = barcode
@@ -328,11 +334,11 @@ async function archiveBarcodeImage(barcode: string, sourceUrl?: string) {
   return supabase.storage.from('barcode-images').getPublicUrl(path).data.publicUrl
 }
 
-export async function approveBarcodeProduct(submissionId: string, barcode: string, input: { productName: string; brand?: string; category?: string; unit?: string; imageUrl?: string }) {
+export async function approveBarcodeProduct(submissionId: string, barcode: string, input: { productName: string; brand?: string; category?: string; unit?: string; imageUrl?: string; imageFile?: File | null }) {
   let archivedImageUrl: string | null = null
   let imageWarning = ''
   try {
-    archivedImageUrl = await archiveBarcodeImage(barcode, input.imageUrl)
+    archivedImageUrl = await archiveBarcodeImage(barcode, input.imageFile || input.imageUrl)
   } catch (error) {
     imageWarning = error instanceof Error ? error.message : '상품 이미지를 공용 저장소에 보관하지 못했습니다.'
   }
@@ -348,11 +354,14 @@ export async function approveBarcodeProduct(submissionId: string, barcode: strin
   return { imageWarning }
 }
 
-export async function updateSharedBarcodeProduct(product: ProductCatalogItem, input: { productName: string; brand?: string; category?: string; unit?: string; imageUrl?: string }) {
+export async function updateSharedBarcodeProduct(product: ProductCatalogItem, input: { productName: string; brand?: string; category?: string; unit?: string; imageUrl?: string; imageFile?: File | null }) {
   let nextImageUrl: string | null = product.image_url
   let imageWarning = ''
   const requestedImageUrl = input.imageUrl?.trim() || ''
-  if (!requestedImageUrl) nextImageUrl = null
+  if (input.imageFile) {
+    try { nextImageUrl = await archiveBarcodeImage(product.barcode, input.imageFile) }
+    catch (error) { imageWarning = error instanceof Error ? error.message : '상품 이미지를 공용 저장소에 보관하지 못했습니다.' }
+  } else if (!requestedImageUrl) nextImageUrl = null
   else if (requestedImageUrl !== product.image_url) {
     try { nextImageUrl = await archiveBarcodeImage(product.barcode, requestedImageUrl) }
     catch (error) { imageWarning = error instanceof Error ? error.message : '상품 이미지를 공용 저장소에 보관하지 못했습니다.' }
@@ -369,10 +378,10 @@ export async function updateSharedBarcodeProduct(product: ProductCatalogItem, in
   return { imageWarning }
 }
 
-export async function createSharedBarcodeProduct(barcode: string, input: { productName: string; brand?: string; category?: string; unit?: string; imageUrl?: string }) {
+export async function createSharedBarcodeProduct(barcode: string, input: { productName: string; brand?: string; category?: string; unit?: string; imageUrl?: string; imageFile?: File | null }) {
   let archivedImageUrl: string | null = null
   let imageWarning = ''
-  try { archivedImageUrl = await archiveBarcodeImage(barcode, input.imageUrl) }
+  try { archivedImageUrl = await archiveBarcodeImage(barcode, input.imageFile || input.imageUrl) }
   catch (error) { imageWarning = error instanceof Error ? error.message : '상품 이미지를 공용 저장소에 보관하지 못했습니다.' }
   const { error } = await supabase.from('product_catalog').insert({
     barcode,
