@@ -3,7 +3,7 @@ import type { IScannerControls } from '@zxing/browser'
 import {
   Apple, ArrowLeft, Beef, Bell, BookOpen, BottleWine, Box, Camera, Carrot, Check, ChevronRight, CircleUserRound, Cookie, CupSoda,
   Clock3, DoorOpen, Egg, Fish, Home, LayoutGrid, List, LoaderCircle, LogOut, Map, MessageCircle, Milk, Package, PackageCheck, PenLine,
-  Plus, ReceiptText, Refrigerator, ScanLine, Search, Settings2, Share2, ShieldCheck, ShoppingBasket, Snowflake, Sparkles, Trash2, UtensilsCrossed, Wheat, X,
+  Plus, ReceiptText, Refrigerator, ScanLine, Search, Settings2, Share2, ShieldCheck, ShoppingBasket, Snowflake, Sparkles, Trash2, Undo2, UtensilsCrossed, Wheat, X,
 } from 'lucide-react'
 import { useAuth } from './contexts/AuthContext'
 import { showAppAlert, showAppConfirm } from './contexts/AppDialogContext'
@@ -475,16 +475,24 @@ function KitchenMap({ data, demoMode, onSelectItem, onMoveItem, onConsumeItem, o
   const [activeMapId, setActiveMapId] = useState(data.maps[0]?.id || '')
   const [editing, setEditing] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [editSelectedId, setEditSelectedId] = useState<string | null>(null)
+  const [layoutHistory, setLayoutHistory] = useState<StorageSpace[][]>([])
+  const [dragPreview, setDragPreview] = useState<{ id: string; dx: number; dy: number; mapX: number; mapY: number; valid: boolean } | null>(null)
   const [formSpace, setFormSpace] = useState<StorageSpace | 'new' | null>(null)
   const [formMap, setFormMap] = useState<KitchenMapPage | 'new' | null>(null)
   const [busy, setBusy] = useState(false)
   const [view, setView] = useState<'map' | 'list'>('map')
-  const dragStartRef = useRef<{ x: number; y: number } | null>(null)
+  const dragStartRef = useRef<{ x: number; y: number; mapX: number; mapY: number } | null>(null)
+  const dragPreviewRef = useRef<typeof dragPreview>(null)
+  const editBaselineRef = useRef<StorageSpace[]>(data.spaces)
   const didDragRef = useRef(false)
   const spaceDrawerRef = useRef<HTMLDivElement | null>(null)
 
   const activeMap = maps.find((map) => map.id === activeMapId) || maps[0]
   const activeMapSpaces = spaces.filter((space) => space.map_id === activeMap?.id)
+  const editSelectedSpace = spaces.find((space) => space.id === editSelectedId) || null
+  const geometryKey = (items: StorageSpace[]) => items.map(({ id, map_id, map_x, map_y, map_width, map_height }) => `${id}:${map_id}:${map_x}:${map_y}:${map_width}:${map_height}`).sort().join('|')
+  const layoutDirty = editing && geometryKey(spaces) !== geometryKey(editBaselineRef.current)
 
   useEffect(() => setSpaces(data.spaces), [data.spaces])
   useEffect(() => {
@@ -521,6 +529,19 @@ function KitchenMap({ data, demoMode, onSelectItem, onMoveItem, onConsumeItem, o
     return true
   }
 
+  const rememberLayout = () => setLayoutHistory((current) => [...current.slice(-19), spaces.map((space) => ({ ...space }))])
+
+  const resizeSelected = (changes: Partial<StorageSpace>) => {
+    if (!editSelectedSpace) return
+    const candidate = { ...editSelectedSpace, ...changes }
+    if (overlapsAnotherSpace(candidate)) {
+      void showAppAlert('다른 공간과 겹쳐서 크기를 바꿀 수 없어요.', '공간이 겹쳐요', 'warning')
+      return
+    }
+    rememberLayout()
+    updateDraft(editSelectedSpace.id, changes)
+  }
+
   const findEmptyPosition = (mapId = activeMapId) => {
     for (let row = 0; row < 12; row += 1) {
       for (let column = 0; column < 4; column += 1) {
@@ -540,15 +561,47 @@ function KitchenMap({ data, demoMode, onSelectItem, onMoveItem, onConsumeItem, o
     const map = event.currentTarget.parentElement
     if (!map) return
     const rect = map.getBoundingClientRect()
-    const column = Math.max(0, Math.min(4 - space.map_width, Math.floor(((event.clientX - rect.left) / rect.width) * 4)))
-    const row = Math.max(0, Math.min(12 - space.map_height, Math.floor((event.clientY - rect.top) / 117)))
-    updateGeometry(space, { map_x: column, map_y: row })
+    const columnStep = (rect.width - 28 - 27) / 4 + 9
+    const column = Math.max(0, Math.min(4 - space.map_width, start.mapX + Math.round((event.clientX - start.x) / columnStep)))
+    const row = Math.max(0, Math.min(12 - space.map_height, start.mapY + Math.round((event.clientY - start.y) / 117)))
+    const candidate = { ...space, map_x: column, map_y: row }
+    const preview = { id: space.id, dx: event.clientX - start.x, dy: event.clientY - start.y, mapX: column, mapY: row, valid: !overlapsAnotherSpace(candidate) }
+    dragPreviewRef.current = preview
+    setDragPreview(preview)
+    if (event.clientY < 90) window.scrollBy({ top: -10, behavior: 'auto' })
+    else if (event.clientY > window.innerHeight - 110) window.scrollBy({ top: 10, behavior: 'auto' })
   }
+
+  const finishDrag = (space: StorageSpace) => {
+    const preview = dragPreviewRef.current
+    if (preview?.id === space.id && preview.valid && (preview.mapX !== space.map_x || preview.mapY !== space.map_y)) {
+      rememberLayout()
+      updateDraft(space.id, { map_x: preview.mapX, map_y: preview.mapY })
+    }
+    setDraggingId(null); setDragPreview(null); dragPreviewRef.current = null; dragStartRef.current = null
+    if (didDragRef.current) window.setTimeout(() => { didDragRef.current = false }, 0)
+  }
+
+  const startEditing = () => {
+    editBaselineRef.current = spaces.map((space) => ({ ...space }))
+    setLayoutHistory([]); setEditSelectedId(null); setSelected(null); setEditing(true)
+  }
+
+  const cancelEditing = async () => {
+    if (layoutDirty && !await showAppConfirm('저장하지 않은 배치 변경을 취소할까요?', { title: '배치 편집 취소', confirmLabel: '변경 취소', kind: 'warning' })) return
+    setSpaces(editBaselineRef.current.map((space) => ({ ...space }))); setLayoutHistory([]); setEditSelectedId(null); setEditing(false)
+  }
+
+  const undoLayout = () => setLayoutHistory((current) => {
+    const previous = current.at(-1)
+    if (previous) setSpaces(previous.map((space) => ({ ...space })))
+    return current.slice(0, -1)
+  })
 
   const saveLayout = async () => {
     if (demoMode) { setEditing(false); return showAppAlert('미리보기에서는 배치가 화면에만 적용돼요.') }
     setBusy(true)
-    try { await updateStorageSpaces(spaces); setEditing(false); await onChanged() }
+    try { await updateStorageSpaces(spaces); editBaselineRef.current = spaces.map((space) => ({ ...space })); setLayoutHistory([]); setEditSelectedId(null); setEditing(false); await onChanged() }
     catch (error) { void showAppAlert(error instanceof Error ? error.message : '주방맵을 저장하지 못했습니다.', '저장하지 못했어요', 'danger') }
     finally { setBusy(false) }
   }
@@ -591,20 +644,20 @@ function KitchenMap({ data, demoMode, onSelectItem, onMoveItem, onConsumeItem, o
   }
 
   return <>
-    <div className="page-heading"><div><p>{editing ? '블록을 끌어 배치하고 크기를 조절하세요' : '공간을 누르면 안이 펼쳐져요'}</p><h1>주방 관리</h1></div>{view === 'map' && (editing ? <div className="map-edit-actions"><button onClick={() => { setSpaces(data.spaces); setEditing(false) }}>취소</button><button className="save" disabled={busy} onClick={saveLayout}>{busy ? <LoaderCircle className="spin" /> : <Check />} 저장</button></div> : <button className="icon-text" onClick={() => { setEditing(true); setSelected(null) }}><PenLine /> 배치 편집</button>)}</div>
+    <div className="page-heading"><div><p>{editing ? '공간을 선택하거나 원하는 칸으로 끌어보세요' : '공간을 누르면 안이 펼쳐져요'}</p><h1>주방 관리</h1></div>{view === 'map' && (editing ? <div className="map-edit-actions"><button onClick={() => void cancelEditing()}>취소</button><button className="save" disabled={busy || !layoutDirty} onClick={saveLayout}>{busy ? <LoaderCircle className="spin" /> : <Check />} 저장</button></div> : <button className="icon-text" onClick={startEditing}><PenLine /> 배치 편집</button>)}</div>
     <div className="view-toggle"><button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}><Map /> 주방맵</button><button className={view === 'list' ? 'active' : ''} onClick={() => { setView('list'); setEditing(false) }}><List /> 목록 보기</button></div>
     {view === 'map' && <div className="map-page-toolbar"><MapPageTabs maps={maps} activeMapId={activeMap?.id || ''} onSelect={(mapId) => { setActiveMapId(mapId); setSelected(null); setEditing(false) }} onAdd={() => setFormMap('new')} /><div className="map-page-actions"><button onClick={() => activeMap && setFormMap(activeMap)}><PenLine /> 이름</button><button onClick={() => void removeMap()}><X /> 삭제</button></div></div>}
     {view === 'map' ? <section className={`kitchen-map ${editing ? 'editing' : ''}`}>
-      {activeMapSpaces.map((space) => <button key={space.id} className={`map-block type-${space.space_type} ${draggingId === space.id ? 'dragging' : ''}`} style={{ gridColumn: `${space.map_x + 1} / span ${Math.max(1, space.map_width)}`, gridRow: `${space.map_y + 1} / span ${Math.max(1, space.map_height)}` }} onClick={() => { if (didDragRef.current) { didDragRef.current = false; return } if (!editing) setSelected(space) }} onPointerDown={(event) => { if (!editing) return; didDragRef.current = false; dragStartRef.current = { x: event.clientX, y: event.clientY }; setDraggingId(space.id); event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={(event) => movePointer(event, space)} onPointerUp={() => { setDraggingId(null); dragStartRef.current = null; if (didDragRef.current) window.setTimeout(() => { didDragRef.current = false }, 0) }} onPointerCancel={() => { setDraggingId(null); dragStartRef.current = null; didDragRef.current = false }}>
+      {activeMapSpaces.map((space) => { const preview = dragPreview?.id === space.id ? dragPreview : null; return <button key={space.id} className={`map-block type-${space.space_type} ${editSelectedId === space.id ? 'edit-selected' : ''} ${draggingId === space.id ? 'dragging' : ''} ${preview && !preview.valid ? 'collision' : ''}`} style={{ gridColumn: `${space.map_x + 1} / span ${Math.max(1, space.map_width)}`, gridRow: `${space.map_y + 1} / span ${Math.max(1, space.map_height)}`, transform: preview ? `translate3d(${preview.dx}px,${preview.dy}px,0) scale(1.02)` : undefined }} onClick={() => { if (didDragRef.current) { didDragRef.current = false; return } if (editing) setEditSelectedId(space.id); else setSelected(space) }} onPointerDown={(event) => { if (!editing) return; didDragRef.current = false; setEditSelectedId(space.id); dragStartRef.current = { x: event.clientX, y: event.clientY, mapX: space.map_x, mapY: space.map_y }; setDraggingId(space.id); event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={(event) => movePointer(event, space)} onPointerUp={() => finishDrag(space)} onPointerCancel={() => { setDraggingId(null); setDragPreview(null); dragPreviewRef.current = null; dragStartRef.current = null; didDragRef.current = false }}>
         {space.expiring_count ? <i>{space.expiring_count}</i> : null}<span>{spaceIcons[space.space_type] || <Box />}</span><b>{space.name}</b><small>{space.alias || `${space.item_count || 0}개 보관 중`}</small>
-        {editing && <div className="resize-controls"><span title="가로 줄이기" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); updateGeometry(space, { map_width: Math.max(1, space.map_width - 1) }) }}>↔−</span><span title="가로 늘이기" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); updateGeometry(space, { map_width: Math.min(4 - space.map_x, space.map_width + 1) }) }}>↔+</span><span title="세로 줄이기" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); updateGeometry(space, { map_height: Math.max(1, space.map_height - 1) }) }}>↕−</span><span title="세로 늘이기" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); updateGeometry(space, { map_height: Math.min(6, space.map_height + 1) }) }}>↕+</span></div>}
-      </button>)}
+      </button>})}
       <button className="map-add" onClick={() => setFormSpace('new')}><Plus /> 공간 추가</button>
     </section> : <section className="space-list-view">
       {spaces.map((space) => { const spaceItems = data.items.filter((item) => item.storage_space_id === space.id); return <article key={space.id}><button className="space-list-main" onClick={() => setSelected(selected?.id === space.id ? null : space)}><span>{spaceIcons[space.space_type] || <Box />}</span><div><h2>{space.name}</h2><p>{space.alias || space.memo || '별칭이나 메모 없음'}</p></div><strong>{spaceItems.length}개</strong><ChevronRight /></button><button className="space-list-edit" aria-label={`${space.name} 수정`} onClick={() => setFormSpace(space)}><PenLine /></button></article> })}
       <button className="list-add-space" onClick={() => setFormSpace('new')}><Plus /> 보관공간 추가</button>
     </section>}
-    {view === 'map' && <p className="map-tip"><Sparkles /> {editing ? '블록을 터치한 채 원하는 칸으로 끌어보세요. 배치를 저장한 뒤 공간 상세에서 정보를 수정할 수 있어요.' : '배치 편집에서 공간의 위치와 크기를 실제 주방처럼 정리할 수 있어요.'}</p>}
+    {view === 'map' && editing && <div className="map-edit-panel"><button className="undo" disabled={!layoutHistory.length} onClick={undoLayout}><Undo2 /> 실행 취소</button>{editSelectedSpace ? <><strong>{editSelectedSpace.name}</strong><div><button disabled={editSelectedSpace.map_width <= 1} onClick={() => resizeSelected({ map_width: editSelectedSpace.map_width - 1 })}>가로 −</button><button disabled={editSelectedSpace.map_x + editSelectedSpace.map_width >= 4} onClick={() => resizeSelected({ map_width: editSelectedSpace.map_width + 1 })}>가로 ＋</button><button disabled={editSelectedSpace.map_height <= 1} onClick={() => resizeSelected({ map_height: editSelectedSpace.map_height - 1 })}>세로 −</button><button disabled={editSelectedSpace.map_y + editSelectedSpace.map_height >= 12} onClick={() => resizeSelected({ map_height: editSelectedSpace.map_height + 1 })}>세로 ＋</button></div></> : <span>크기를 바꿀 공간을 선택하세요.</span>}</div>}
+    {view === 'map' && <p className="map-tip"><Sparkles /> {editing ? '끌고 있는 공간이 붉게 보이면 다른 공간과 겹친 상태예요.' : '배치 편집에서 공간의 위치와 크기를 실제 주방처럼 정리할 수 있어요.'}</p>}
     {selected && <div ref={spaceDrawerRef} tabIndex={-1} className="space-drawer space-focus-target"><div><span>{spaceIcons[selected.space_type] || <Box />}</span><div><h2>{selected.name}</h2><p>{selected.alias || selected.memo || '별칭이나 메모가 없습니다.'}</p></div><div className="space-drawer-actions"><button aria-label={`${selected.name} 수정`} onClick={() => setFormSpace(selected)}><PenLine /></button><button aria-label="공간 상세 닫기" onClick={() => setSelected(null)}><X /></button></div></div><button className="space-drawer-add" onClick={() => onAdd(selected.id)}><Plus /> {selected.name}에 식재료 추가</button>{data.items.filter((item) => item.storage_space_id === selected.id).length ? data.items.filter((item) => item.storage_space_id === selected.id).map((item) => <ItemRow key={item.id} item={item} onClick={() => onSelectItem(item)} onMove={() => onMoveItem(item)} onConsume={() => onConsumeItem(item)} />) : <p className="empty-space-message">이 공간에 등록된 식재료가 없어요.</p>}</div>}
     {formSpace && <SpaceForm space={formSpace === 'new' ? null : formSpace} maps={maps} initialMapId={activeMap?.id || ''} kitchenId={data.kitchen.id} demoMode={demoMode} onClose={() => setFormSpace(null)} onDelete={removeSpace} onSave={async (values) => {
       if (formSpace === 'new') {
