@@ -924,7 +924,7 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
   </div>
 }
 
-type ReceiptCandidate = { id: string; name: string; quantity: number; unit: string; spaceId: string; selected: boolean }
+type ReceiptCandidate = { id: string; name: string; quantity: number; unit: string; spaceId: string; selected: boolean; deadlineType: DeadlineType; deadlineDate: string; purchasedAt: string }
 
 function receiptCandidatesFromText(text: string, defaultSpaceId: string) {
   const ignored = /^(합계|총액|과세|면세|부가세|공급가|결제|카드|현금|거스름|승인|영수증|사업자|대표|전화|주소|일시|날짜|시간|품명|단가|수량|금액|할인|소계|봉투|vat|total)/i
@@ -933,20 +933,37 @@ function receiptCandidatesFromText(text: string, defaultSpaceId: string) {
     let line = rawLine.replace(/[|_[\]{}]/g, ' ').replace(/\s+/g, ' ').trim()
     if (!line || line.length < 2 || ignored.test(line) || /^[-=*#\d,.\s]+$/.test(line)) continue
     if (/\d{2,4}[./-]\d{1,2}[./-]\d{1,2}/.test(line)) continue
-    line = line.replace(/^\d{1,3}\s+/, '').replace(/\s+[-+]?\d{1,3}(?:,\d{3})+(?:\s*원)?\s*$/, '').trim()
+    line = line.replace(/^\d{1,3}\s+/, '')
+    const hasPrice = /(?:^|\s)[-+]?\d{1,3}(?:[,.]\d{3})+(?:\s*원)?\s*$/.test(line)
+    line = line.replace(/\s+[-+]?\d{1,3}(?:[,.]\d{3})+(?:\s*원)?\s*$/, '').trim()
     let quantity = 1
     const quantityMatch = line.match(/(?:\s|^)(\d{1,2})\s*(개|팩|봉|병|통|판|단)\s*$/)
     if (quantityMatch) {
       quantity = Math.max(1, Number(quantityMatch[1]))
       line = line.slice(0, quantityMatch.index).trim()
     } else line = line.replace(/\s+\d+\s*[xX*]\s*\d[\d,]*\s*$/, '').trim()
-    line = line.replace(/\s+\d[\d,]*\s*원?\s*$/, '').trim()
+    line = line.replace(/\s+\d[\d,.]*\s*원?\s*$/, '').trim()
+    if (!hasPrice) continue
     if (line.length < 2 || !/[가-힣A-Za-z]/.test(line)) continue
     const normalized = line.slice(0, 45)
     if (candidates.some((item) => item.name === normalized)) continue
-    candidates.push({ id: crypto.randomUUID(), name: normalized, quantity, unit: '개', spaceId: defaultSpaceId, selected: true })
+    candidates.push({ id: crypto.randomUUID(), name: normalized, quantity, unit: '개', spaceId: defaultSpaceId, selected: true, deadlineType: 'purchase', deadlineDate: todayDate(), purchasedAt: todayDate() })
   }
   return candidates.slice(0, 50)
+}
+
+async function preprocessReceiptImage(file: File) {
+  const bitmap = await createImageBitmap(file)
+  const scale = Math.min(2.4, 2200 / bitmap.width)
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(bitmap.width, Math.round(bitmap.width * scale))
+  canvas.height = Math.max(bitmap.height, Math.round(bitmap.height * scale))
+  const context = canvas.getContext('2d')
+  if (!context) { bitmap.close(); return file }
+  context.filter = 'grayscale(1) contrast(1.65) brightness(1.08)'
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  bitmap.close()
+  return await new Promise<Blob>((resolve) => canvas.toBlob((blob) => resolve(blob || file), 'image/jpeg', .92))
 }
 
 function receiptDateFromText(text: string) {
@@ -959,7 +976,6 @@ function receiptDateFromText(text: string) {
 function ReceiptScanner({ data, profileId, initialSpaceId, demoMode, onSaved }: { data: AppData; profileId: string; initialSpaceId: string; demoMode: boolean; onSaved: () => Promise<void> }) {
   const [imageUrl, setImageUrl] = useState('')
   const [candidates, setCandidates] = useState<ReceiptCandidate[]>([])
-  const [purchaseDate, setPurchaseDate] = useState(todayDate())
   const [progress, setProgress] = useState(0)
   const [recognizing, setRecognizing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -969,12 +985,15 @@ function ReceiptScanner({ data, profileId, initialSpaceId, demoMode, onSaved }: 
     if (imageUrl) URL.revokeObjectURL(imageUrl)
     setImageUrl(URL.createObjectURL(file)); setCandidates([]); setRecognizing(true); setProgress(0)
     try {
-      const { createWorker } = await import('tesseract.js')
+      const { createWorker, PSM } = await import('tesseract.js')
       const worker = await createWorker(['kor', 'eng'], undefined, { logger: (message) => { if (message.status === 'recognizing text') setProgress(Math.round((message.progress || 0) * 100)) } })
-      const result = await worker.recognize(file)
+      await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK, preserve_interword_spaces: '1', user_defined_dpi: '300' })
+      const processedImage = await preprocessReceiptImage(file)
+      const result = await worker.recognize(processedImage)
       await worker.terminate()
       const next = receiptCandidatesFromText(result.data.text, initialSpaceId || data.spaces[0]?.id || '')
-      setPurchaseDate(receiptDateFromText(result.data.text)); setCandidates(next)
+      const receiptDate = receiptDateFromText(result.data.text)
+      setCandidates(next.map((item) => ({ ...item, deadlineDate: receiptDate, purchasedAt: receiptDate })))
       if (!next.length) void showAppAlert('상품으로 판단할 글자를 찾지 못했어요. 영수증을 밝고 평평하게 촬영해 다시 시도해 주세요.', '인식 결과가 없어요', 'warning')
     } catch (error) { void showAppAlert(error instanceof Error ? error.message : '영수증을 인식하지 못했습니다.', 'OCR 처리 실패', 'danger') }
     finally { setRecognizing(false) }
@@ -985,12 +1004,12 @@ function ReceiptScanner({ data, profileId, initialSpaceId, demoMode, onSaved }: 
     if (demoMode) return showAppAlert(`${selected.length}개 상품의 일괄 등록 흐름을 확인했어요. 로그인 후 실제로 저장됩니다.`)
     setSaving(true)
     try {
-      await Promise.all(selected.map((item) => createInventoryItem({ kitchen_id: data.kitchen.id, storage_space_id: item.spaceId, catalog_product_id: null, created_by: profileId, product_name: item.name.trim(), alias: null, barcode: null, image_path: null, category: null, quantity: Math.max(.1, item.quantity || 1), unit: item.unit, purchased_at: purchaseDate, opened_at: null, expiration_date: null, use_by_date: null, recommended_use_date: null, memo: '영수증으로 등록', registration_method: 'bulk' })))
-      await onSaved(); void showAppAlert(`${selected.length}개 상품을 저장했어요. 기한이나 카테고리는 상품 상세에서 보완할 수 있어요.`, '영수증 등록 완료')
+      await Promise.all(selected.map((item) => createInventoryItem({ kitchen_id: data.kitchen.id, storage_space_id: item.spaceId, catalog_product_id: null, created_by: profileId, product_name: item.name.trim(), alias: null, barcode: null, image_path: null, category: null, quantity: Math.max(.1, item.quantity || 1), unit: item.unit, purchased_at: item.purchasedAt, opened_at: null, expiration_date: item.deadlineType === 'expiration' ? item.deadlineDate || null : null, use_by_date: item.deadlineType === 'use_by' ? item.deadlineDate || null : null, recommended_use_date: null, memo: '영수증으로 등록', registration_method: 'bulk' })))
+      await onSaved(); void showAppAlert(`${selected.length}개 상품을 저장했어요. 카테고리는 상품 상세에서 보완할 수 있어요.`, '영수증 등록 완료')
     } catch (error) { void showAppAlert(error instanceof Error ? error.message : '상품을 저장하지 못했습니다.', '일괄 저장 실패', 'danger') }
     finally { setSaving(false) }
   }
-  return <section className="receipt-scanner"><div className="receipt-photo"><div className="receipt-photo-preview">{imageUrl ? <img src={imageUrl} alt="선택한 영수증" /> : <ReceiptText />}<span><b>영수증으로 한 번에 등록</b><small>상품명과 구매일을 기기에서 인식해요.</small></span></div><div className="receipt-photo-actions"><label><Camera /> 영수증 촬영<input type="file" accept="image/*" capture="environment" disabled={recognizing} onChange={(event) => { const file = event.target.files?.[0]; if (file) void recognize(file); event.currentTarget.value = '' }} /></label><label><ReceiptText /> 사진에서 선택<input type="file" accept="image/*" disabled={recognizing} onChange={(event) => { const file = event.target.files?.[0]; if (file) void recognize(file); event.currentTarget.value = '' }} /></label></div></div>{recognizing && <div className="receipt-progress"><span style={{ width: `${progress}%` }} /><b>영수증 읽는 중 {progress}%</b></div>}{candidates.length > 0 && <><div className="receipt-review-head"><div><b>인식된 상품</b><span>{selectedCount}/{candidates.length}개 선택</span></div><label><span>구매일</span><input type="date" value={purchaseDate} onChange={(event) => setPurchaseDate(event.target.value)} /></label></div><p className="receipt-guide">잘못 인식된 이름과 수량을 고친 뒤 저장할 상품만 선택해 주세요.</p><div className="receipt-items">{candidates.map((item) => <article className={item.selected ? 'selected' : ''} key={item.id}><button className="receipt-select" aria-label={`${item.name} 선택`} onClick={() => update(item.id, { selected: !item.selected })}>{item.selected && <Check />}</button><input className="receipt-name" value={item.name} onChange={(event) => update(item.id, { name: event.target.value })} /><input className="receipt-quantity" inputMode="decimal" value={item.quantity} onChange={(event) => update(item.id, { quantity: Math.max(.1, Number(event.target.value) || 1) })} /><select value={item.unit} onChange={(event) => update(item.id, { unit: event.target.value })}><option>개</option><option>팩</option><option>봉</option><option>병</option><option>통</option><option>g</option><option>kg</option></select><select className="receipt-space" value={item.spaceId} onChange={(event) => update(item.id, { spaceId: event.target.value })}>{data.spaces.map((space) => <option value={space.id} key={space.id}>{space.name}</option>)}</select></article>)}</div><button className="primary-button" disabled={saving || !selectedCount} onClick={() => void saveAll()}>{saving ? <LoaderCircle className="spin" /> : <PackageCheck />} 선택한 {selectedCount}개 저장</button></>}</section>
+  return <section className="receipt-scanner"><div className="receipt-photo"><div className="receipt-photo-preview">{imageUrl ? <img src={imageUrl} alt="선택한 영수증" /> : <ReceiptText />}<span><b>영수증으로 한 번에 등록</b><small>상품명과 구매일을 기기에서 인식해요.</small></span></div><div className="receipt-photo-actions"><label><Camera /> 영수증 촬영<input type="file" accept="image/*" capture="environment" disabled={recognizing} onChange={(event) => { const file = event.target.files?.[0]; if (file) void recognize(file); event.currentTarget.value = '' }} /></label><label><ReceiptText /> 사진에서 선택<input type="file" accept="image/*" disabled={recognizing} onChange={(event) => { const file = event.target.files?.[0]; if (file) void recognize(file); event.currentTarget.value = '' }} /></label></div></div>{recognizing && <div className="receipt-progress"><span style={{ width: `${progress}%` }} /><b>영수증 읽는 중 {progress}%</b></div>}{candidates.length > 0 && <><div className="receipt-review-head"><div><b>인식된 상품</b><span>{selectedCount}/{candidates.length}개 선택</span></div><div className="receipt-selection-actions"><button onClick={() => setCandidates((current) => current.map((item) => ({ ...item, selected: true })))}>전체 선택</button><button onClick={() => setCandidates((current) => current.map((item) => ({ ...item, selected: false })))}>전체 해제</button></div></div><p className="receipt-guide">잘못 인식된 이름과 수량을 고친 뒤 저장할 상품만 선택해 주세요.</p><div className="receipt-items">{candidates.map((item) => <article className={item.selected ? 'selected' : ''} key={item.id}><button className="receipt-select" aria-label={`${item.name} 선택`} onClick={() => update(item.id, { selected: !item.selected })}>{item.selected && <Check />}</button><input className="receipt-name" value={item.name} onChange={(event) => update(item.id, { name: event.target.value })} /><input className="receipt-quantity" inputMode="decimal" value={item.quantity} onChange={(event) => update(item.id, { quantity: Math.max(.1, Number(event.target.value) || 1) })} /><select value={item.unit} onChange={(event) => update(item.id, { unit: event.target.value })}><option>개</option><option>팩</option><option>봉</option><option>병</option><option>통</option><option>g</option><option>kg</option></select><select className="receipt-space" value={item.spaceId} onChange={(event) => update(item.id, { spaceId: event.target.value })}>{data.spaces.map((space) => <option value={space.id} key={space.id}>{space.name}</option>)}</select><div className="receipt-deadline"><select aria-label={`${item.name} 관리 기준`} value={item.deadlineType} onChange={(event) => { const nextType = event.target.value as DeadlineType; update(item.id, { deadlineType: nextType, deadlineDate: nextType === 'purchase' ? item.purchasedAt : '' }) }}><option value="purchase">구매일 기준</option><option value="use_by">소비기한</option><option value="expiration">유통기한</option></select><input aria-label={`${item.name} 관리 날짜`} type="date" value={item.deadlineDate} onChange={(event) => update(item.id, { deadlineDate: event.target.value, ...(item.deadlineType === 'purchase' ? { purchasedAt: event.target.value } : {}) })} /></div></article>)}</div><button className="primary-button" disabled={saving || !selectedCount} onClick={() => void saveAll()}>{saving ? <LoaderCircle className="spin" /> : <PackageCheck />} 선택한 {selectedCount}개 저장</button></>}</section>
 }
 
 function BarcodeCameraScanner({ onDetected }: { onDetected: (barcode: string) => Promise<void> }) {
