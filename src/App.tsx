@@ -3,7 +3,7 @@ import type { IScannerControls } from '@zxing/browser'
 import {
   Apple, ArrowLeft, Beef, Bell, BookOpen, BottleWine, Box, Camera, Carrot, Check, ChevronRight, CircleUserRound, Cookie, CupSoda,
   Clock3, DoorOpen, Egg, Fish, Home, LayoutGrid, List, LoaderCircle, LogOut, Map, Milk, Package, PackageCheck, PenLine,
-  Plus, Refrigerator, ScanLine, Search, Settings2, Share2, ShieldCheck, ShoppingBasket, Snowflake, Sparkles, Trash2, UtensilsCrossed, Wheat, X,
+  Plus, ReceiptText, Refrigerator, ScanLine, Search, Settings2, Share2, ShieldCheck, ShoppingBasket, Snowflake, Sparkles, Trash2, UtensilsCrossed, Wheat, X,
 } from 'lucide-react'
 import { useAuth } from './contexts/AuthContext'
 import { showAppAlert, showAppConfirm } from './contexts/AppDialogContext'
@@ -392,14 +392,16 @@ function ShoppingListSummary({ items, profileId, kitchenId, demoMode, onOpen, on
 }
 
 function ShoppingListSheet({ items, profileId, kitchenId, demoMode, onClose, onChanged }: { items: ShoppingListItem[]; profileId: string; kitchenId: string; demoMode: boolean; onClose: () => void; onChanged: () => Promise<void> }) {
+  const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [quantity, setQuantity] = useState('1')
   const [unit, setUnit] = useState('개')
   const [memo, setMemo] = useState('')
   const [busy, setBusy] = useState(false)
-  const reset = () => { setEditingId(null); setName(''); setQuantity('1'); setUnit('개'); setMemo('') }
-  const edit = (item: ShoppingListItem) => { setEditingId(item.id); setName(item.product_name); setQuantity(String(item.quantity)); setUnit(item.unit); setMemo(item.memo || '') }
+  const reset = () => { setEditingId(null); setName(''); setQuantity('1'); setUnit('개'); setMemo(''); setFormOpen(false) }
+  const openAddForm = () => { setEditingId(null); setName(''); setQuantity('1'); setUnit('개'); setMemo(''); setFormOpen(true) }
+  const edit = (item: ShoppingListItem) => { setEditingId(item.id); setName(item.product_name); setQuantity(String(item.quantity)); setUnit(item.unit); setMemo(item.memo || ''); setFormOpen(true) }
   const save = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!name.trim() || busy) return
@@ -420,7 +422,7 @@ function ShoppingListSheet({ items, profileId, kitchenId, demoMode, onClose, onC
     if (demoMode || !await showAppConfirm(`${item.product_name}을(를) 장보기 목록에서 삭제할까요?`, { title: '장보기 항목 삭제', confirmLabel: '삭제', kind: 'danger' })) return
     await deleteShoppingItem(item.id); if (editingId === item.id) reset(); await onChanged()
   }
-  return <div className="sheet-backdrop"><section className="shopping-list-sheet"><div className="sheet-head"><div><h2>장보기 체크리스트</h2></div><button onClick={onClose}><X /></button></div><form className="shopping-item-form" onSubmit={save}><label className="full"><span>상품명 *</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="예: 달걀" /></label><label><span>수량</span><input inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value.replace(/[^\d.]/g, ''))} /></label><label><span>단위</span><select value={unit} onChange={(event) => setUnit(event.target.value)}><option>개</option><option>팩</option><option>봉</option><option>병</option><option>통</option><option>판</option><option>단</option><option>g</option><option>kg</option></select></label><label className="full"><span>메모</span><input value={memo} onChange={(event) => setMemo(event.target.value)} placeholder="브랜드, 용도 등을 적어두세요." /></label><div className="shopping-form-actions full">{editingId && <button type="button" onClick={reset}>취소</button>}<button disabled={busy || !name.trim()}>{busy ? <LoaderCircle className="spin" /> : editingId ? <Check /> : <Plus />} {editingId ? '수정 저장' : '목록에 담기'}</button></div></form><div className="shopping-full-list">{items.length ? items.map((item) => <article key={item.id}><button className="shopping-check" aria-label={`${item.product_name} 구매 완료`} onClick={() => void check(item)}><Check /></button><button className="shopping-item-main" onClick={() => edit(item)}><b>{item.product_name}</b><span>{item.quantity}{item.unit}{item.memo ? ` · ${item.memo}` : ''}</span></button><button className="shopping-delete" aria-label={`${item.product_name} 삭제`} onClick={() => void remove(item)}><Trash2 /></button></article>) : <div className="no-results"><ShoppingBasket /><p>장볼 항목을 추가해 보세요.</p></div>}</div></section></div>
+  return <div className="sheet-backdrop"><section className="shopping-list-sheet"><div className="sheet-head shopping-sheet-head"><div><h2>장보기 체크리스트</h2><p>{items.length}개 항목</p></div><div className="shopping-head-actions">{!formOpen && <button className="shopping-add-button" onClick={openAddForm}><Plus /> 추가</button>}<button aria-label="닫기" onClick={onClose}><X /></button></div></div>{formOpen && <form className="shopping-item-form" onSubmit={save}><label className="full"><span>상품명 *</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="예: 달걀" /></label><label><span>수량</span><input inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value.replace(/[^\d.]/g, ''))} /></label><label><span>단위</span><select value={unit} onChange={(event) => setUnit(event.target.value)}><option>개</option><option>팩</option><option>봉</option><option>병</option><option>통</option><option>판</option><option>단</option><option>g</option><option>kg</option></select></label><label className="full"><span>메모</span><input value={memo} onChange={(event) => setMemo(event.target.value)} placeholder="브랜드, 용도 등을 적어두세요." /></label><div className="shopping-form-actions full"><button type="button" onClick={reset}>취소</button><button disabled={busy || !name.trim()}>{busy ? <LoaderCircle className="spin" /> : editingId ? <Check /> : <Plus />} {editingId ? '수정 저장' : '목록에 담기'}</button></div></form>}<div className="shopping-full-list">{items.length ? items.map((item) => <article key={item.id}><button className="shopping-check" aria-label={`${item.product_name} 구매 완료`} onClick={() => void check(item)}><Check /></button><button className="shopping-item-main" onClick={() => edit(item)}><b>{item.product_name}</b><span>{item.quantity}{item.unit}{item.memo ? ` · ${item.memo}` : ''}</span></button><button className="shopping-delete" aria-label={`${item.product_name} 삭제`} onClick={() => void remove(item)}><Trash2 /></button></article>) : <div className="no-results"><ShoppingBasket /><p>장볼 항목을 추가해 보세요.</p><button className="empty-shopping-add" onClick={openAddForm}><Plus /> 첫 항목 추가</button></div>}</div></section></div>
 }
 
 function KitchenMap({ data, demoMode, onSelectItem, onMoveItem, onConsumeItem, onAdd, onChanged }: { data: AppData; demoMode: boolean; onSelectItem: (item: InventoryItem) => void; onMoveItem: (item: InventoryItem) => void; onConsumeItem: (item: InventoryItem) => void; onAdd: (spaceId: string) => void; onChanged: () => Promise<void> }) {
@@ -818,7 +820,7 @@ function RecipeEditor({ recipe, profileId, savedRecipeIds, onClose, onSaved }: {
 }
 
 function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSaved }: { data: AppData; initialSpaceId: string | null; profileId: string; demoMode: boolean; onClose: () => void; onSaved: () => Promise<void> }) {
-  const [mode, setMode] = useState<'barcode' | 'manual'>('barcode')
+  const [mode, setMode] = useState<'barcode' | 'manual' | 'receipt'>('barcode')
   const [busy, setBusy] = useState(false)
   const [barcode, setBarcode] = useState('')
   const [name, setName] = useState('')
@@ -888,7 +890,7 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
     setBusy(true)
     try {
       const imagePath = file ? await uploadInventoryImage(file, data.kitchen.id, profileId) : barcodeImageUrl || null
-      await createInventoryItem({ kitchen_id: data.kitchen.id, storage_space_id: spaceId, catalog_product_id: catalogProductId, created_by: profileId, product_name: name.trim(), alias: alias.trim() || null, barcode: barcode || null, image_path: imagePath, category: category || null, quantity: Number(quantity) || quantityStep, unit, purchased_at: deadlineType === 'purchase' ? purchaseDate : todayDate(), opened_at: null, expiration_date: deadlineType === 'expiration' ? deadlineDate || null : null, use_by_date: deadlineType === 'use_by' ? deadlineDate || null : null, recommended_use_date: deadlineType === 'purchase' && purchaseDate ? addDateDays(purchaseDate, recommendedDays) : null, memo: memo.trim() || null, registration_method: mode })
+      await createInventoryItem({ kitchen_id: data.kitchen.id, storage_space_id: spaceId, catalog_product_id: catalogProductId, created_by: profileId, product_name: name.trim(), alias: alias.trim() || null, barcode: barcode || null, image_path: imagePath, category: category || null, quantity: Number(quantity) || quantityStep, unit, purchased_at: deadlineType === 'purchase' ? purchaseDate : todayDate(), opened_at: null, expiration_date: deadlineType === 'expiration' ? deadlineDate || null : null, use_by_date: deadlineType === 'use_by' ? deadlineDate || null : null, recommended_use_date: deadlineType === 'purchase' && purchaseDate ? addDateDays(purchaseDate, recommendedDays) : null, memo: memo.trim() || null, registration_method: mode === 'receipt' ? 'bulk' : mode })
       await submitSharedReview(imagePath)
       await onSaved()
     } catch (error) { void showAppAlert(error instanceof Error ? error.message : '저장하지 못했습니다.', '저장하지 못했어요', 'danger') } finally { setBusy(false) }
@@ -913,13 +915,82 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
     } catch (error) { void showAppAlert(error instanceof Error ? error.message : '저장하지 못했습니다.', '저장하지 못했어요', 'danger') } finally { setBusy(false) }
   }
   return <div className="sheet-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><section className="add-sheet"><div className="sheet-handle" /><div className="sheet-head"><div><p>10초 안에 빠르게</p><h2>식재료 추가</h2></div><button onClick={onClose}><X /></button></div>
-    <div className="mode-tabs"><button className={mode === 'barcode' ? 'active' : ''} onClick={() => setMode('barcode')}><ScanLine /> 바코드</button><button className={mode === 'manual' ? 'active' : ''} onClick={() => setMode('manual')}><PenLine /> 직접 입력</button></div>
+    <div className="mode-tabs add-mode-tabs"><button className={mode === 'barcode' ? 'active' : ''} onClick={() => setMode('barcode')}><ScanLine /> 바코드</button><button className={mode === 'manual' ? 'active' : ''} onClick={() => setMode('manual')}><PenLine /> 직접 입력</button><button className={mode === 'receipt' ? 'active' : ''} onClick={() => setMode('receipt')}><ReceiptText /> 영수증</button></div>
     {mode === 'barcode' && <><BarcodeCameraScanner onDetected={findBarcode} /><details className="barcode-manual"><summary>번호를 직접 입력할게요</summary><div><input inputMode="numeric" value={barcode} onChange={(e) => setBarcode(e.target.value.replace(/\D/g, ''))} placeholder="880..." /><button onClick={() => void findBarcode()}>조회</button></div></details></>}
-    <label className="photo-field">{preview ? <img src={preview} /> : <Camera />}<span>{file ? file.name : barcodeImageUrl ? '바코드 상품 사진을 함께 저장해요' : '상품 사진 촬영 또는 선택'}</span><input type="file" accept="image/*" capture="environment" onChange={(e) => { const selected = e.target.files?.[0] || null; setFile(selected); if (selected) { setBarcodeImageUrl(''); setPreview(URL.createObjectURL(selected)) } }} /></label>
-    <div className="form-grid"><div className="product-name-autocomplete full"><label><span>상품명 *</span><input value={name} autoComplete="off" onFocus={() => personalSuggestions.length && setSuggestionsOpen(true)} onBlur={() => window.setTimeout(() => setSuggestionsOpen(false), 120)} onChange={(e) => { setName(e.target.value); if (deadlineType === 'purchase') setRecommendedDays(recommendedFreshDays(e.target.value, category)) }} placeholder="예: 햇반 또는 햇" /></label>{mode === 'manual' && suggestionsOpen && personalSuggestions.length > 0 && <div className="personal-product-suggestions">{personalSuggestions.map((product) => <button type="button" key={product.barcode || `${product.product_name}-${product.unit}`} onMouseDown={(event) => event.preventDefault()} onClick={() => selectPersonalProduct(product)}>{getInventoryImageUrl(product.image_path) ? <img src={getInventoryImageUrl(product.image_path)} alt="" /> : <span>{getItemCategoryVisual({ product_name: product.product_name, category: product.category }).icon}</span>}<div><b>{product.product_name}</b><small>{product.category || '카테고리 없음'} · {product.unit}{product.barcode ? ` · ${product.barcode}` : ''}</small></div><span>선택</span></button>)}</div>}</div><label><span>별칭</span><input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder="아침용" /></label><CategoryField value={category} onChange={(value) => { setCategory(value); if (/채소|과일/.test(value)) { setDeadlineType('purchase'); setRecommendedDays(recommendedFreshDays(name, value)) } else if (deadlineType === 'purchase') setRecommendedDays(recommendedFreshDays(name, value)) }} /><div className="quantity-field"><span>수량</span><div className="register-stepper"><button type="button" aria-label="수량 줄이기" onClick={() => changeQuantity(-1)}>−</button><strong>{quantity}</strong><button type="button" aria-label="수량 늘이기" onClick={() => changeQuantity(1)}>+</button></div></div><label><span>단위</span><select value={unit} onChange={(e) => changeUnit(e.target.value)}><option>개</option><option>팩</option><option>병</option><option>봉</option><option>g</option><option>kg</option><option>모</option></select></label><label className="full"><span>보관 위치 *</span><select value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>{data.spaces.map((space) => <option key={space.id} value={space.id}>{space.name}{space.alias ? ` · ${space.alias}` : ''}</option>)}</select></label><label className="full"><span>관리 기준</span><select value={deadlineType} onChange={(e) => { const value = e.target.value as DeadlineType; setDeadlineType(value); if (value === 'purchase') setRecommendedDays(recommendedFreshDays(name, category)) }}><option value="use_by">소비기한</option><option value="expiration">유통기한</option><option value="purchase">구매일 기준</option></select></label>{deadlineType === 'purchase' ? <><label><span>구매일</span><input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} /></label><RecommendedDaysField days={recommendedDays} onChange={setRecommendedDays} /><p className="freshness-note full">품목별 일반적인 냉장 보관 참고값이에요. 상태에 따라 직접 조정할 수 있어요.</p></> : <label className="full"><span>{deadlineType === 'use_by' ? '소비기한 날짜' : '유통기한 날짜'}</span><input type="date" value={deadlineDate} onChange={(e) => setDeadlineDate(e.target.value)} /></label>}<label className="full"><span>메모</span><textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="보관법이나 구입처를 적어두세요." /></label></div>
-    <button className="primary-button" disabled={busy} onClick={save}>{busy ? <LoaderCircle className="spin" /> : <PackageCheck />} 저장하기</button>
+    {mode === 'receipt' ? <ReceiptScanner data={data} profileId={profileId} initialSpaceId={spaceId} demoMode={demoMode} onSaved={onSaved} /> : <><div className="product-photo-field"><label className="photo-field">{preview ? <img src={preview} /> : <Camera />}<span>{file ? file.name : barcodeImageUrl ? '바코드 상품 사진을 함께 저장해요' : '상품 사진 촬영 또는 선택'}</span><input type="file" accept="image/*" capture="environment" onChange={(e) => { const selected = e.target.files?.[0] || null; setFile(selected); if (selected) { setBarcodeImageUrl(''); setPreview(URL.createObjectURL(selected)) } }} /></label>{preview && <button type="button" className="photo-remove" aria-label="상품 사진 삭제" onClick={() => { if (file && preview.startsWith('blob:')) URL.revokeObjectURL(preview); setFile(null); setBarcodeImageUrl(''); setPreview('') }}><X /></button>}</div>
+    <div className="form-grid"><div className="product-name-autocomplete full"><label><span>상품명 *</span><input value={name} autoComplete="off" onFocus={() => personalSuggestions.length && setSuggestionsOpen(true)} onBlur={() => window.setTimeout(() => setSuggestionsOpen(false), 120)} onChange={(e) => { setName(e.target.value); if (deadlineType === 'purchase') setRecommendedDays(recommendedFreshDays(e.target.value, category)) }} placeholder="예: 햇반" /></label>{mode === 'manual' && suggestionsOpen && personalSuggestions.length > 0 && <div className="personal-product-suggestions">{personalSuggestions.map((product) => <button type="button" key={product.barcode || `${product.product_name}-${product.unit}`} onMouseDown={(event) => event.preventDefault()} onClick={() => selectPersonalProduct(product)}>{getInventoryImageUrl(product.image_path) ? <img src={getInventoryImageUrl(product.image_path)} alt="" /> : <span>{getItemCategoryVisual({ product_name: product.product_name, category: product.category }).icon}</span>}<div><b>{product.product_name}</b><small>{product.category || '카테고리 없음'} · {product.unit}{product.barcode ? ` · ${product.barcode}` : ''}</small></div><span>선택</span></button>)}</div>}</div><label><span>별칭</span><input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder="아침용" /></label><CategoryField value={category} onChange={(value) => { setCategory(value); if (/채소|과일/.test(value)) { setDeadlineType('purchase'); setRecommendedDays(recommendedFreshDays(name, value)) } else if (deadlineType === 'purchase') setRecommendedDays(recommendedFreshDays(name, value)) }} /><div className="quantity-field"><span>수량</span><div className="register-stepper"><button type="button" aria-label="수량 줄이기" onClick={() => changeQuantity(-1)}>−</button><strong>{quantity}</strong><button type="button" aria-label="수량 늘이기" onClick={() => changeQuantity(1)}>+</button></div></div><label><span>단위</span><select value={unit} onChange={(e) => changeUnit(e.target.value)}><option>개</option><option>팩</option><option>병</option><option>봉</option><option>g</option><option>kg</option><option>모</option></select></label><label className="full"><span>보관 위치 *</span><select value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>{data.spaces.map((space) => <option key={space.id} value={space.id}>{space.name}{space.alias ? ` · ${space.alias}` : ''}</option>)}</select></label><label className="full"><span>관리 기준</span><select value={deadlineType} onChange={(e) => { const value = e.target.value as DeadlineType; setDeadlineType(value); if (value === 'purchase') setRecommendedDays(recommendedFreshDays(name, category)) }}><option value="use_by">소비기한</option><option value="expiration">유통기한</option><option value="purchase">구매일 기준</option></select></label>{deadlineType === 'purchase' ? <><label><span>구매일</span><input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} /></label><RecommendedDaysField days={recommendedDays} onChange={setRecommendedDays} /><p className="freshness-note full">품목별 일반적인 냉장 보관 참고값이에요. 상태에 따라 직접 조정할 수 있어요.</p></> : <label className="full"><span>{deadlineType === 'use_by' ? '소비기한 날짜' : '유통기한 날짜'}</span><input type="date" value={deadlineDate} onChange={(e) => setDeadlineDate(e.target.value)} /></label>}<label className="full"><span>메모</span><textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="보관법이나 구입처를 적어두세요." /></label></div>
+    <button className="primary-button" disabled={busy} onClick={save}>{busy ? <LoaderCircle className="spin" /> : <PackageCheck />} 저장하기</button></>}
   </section>{duplicateItem && <div className="duplicate-item-backdrop"><section className="duplicate-item-dialog"><div className="duplicate-item-icon"><PackageCheck /></div><h3>이미 같은 공간에 있는 상품이에요</h3><p><b>{duplicateItem.product_name}</b>의 기존 수량 {duplicateItem.quantity}{duplicateItem.unit}에 새 수량 {quantity}{unit}을 추가할까요?</p><div className="duplicate-deadline-warning"><Clock3 /><span><b>수량 추가 시 기존 관리 날짜를 유지해요.</b><small>{duplicateItem.use_by_date ? `소비기한 ${duplicateItem.use_by_date}` : duplicateItem.expiration_date ? `유통기한 ${duplicateItem.expiration_date}` : duplicateItem.recommended_use_date ? `권장 섭취일 ${duplicateItem.recommended_use_date}` : '기존 상품에 등록된 날짜 없음'}{deadlineType === 'purchase' ? ` · 새 구매일 ${purchaseDate}은 적용되지 않음` : deadlineDate ? ` · 새로 입력한 ${deadlineType === 'use_by' ? '소비기한' : '유통기한'} ${deadlineDate}은 적용되지 않음` : ''}</small></span></div><div className="duplicate-item-actions"><button disabled={busy} onClick={() => setDuplicateItem(null)}>취소</button><button disabled={busy} onClick={() => { setDuplicateItem(null); void createNewItem() }}>별도로 등록</button><button disabled={busy} onClick={() => void mergeQuantity()}>{busy ? <LoaderCircle className="spin" /> : <Plus />} 수량 추가</button></div></section></div>}
   </div>
+}
+
+type ReceiptCandidate = { id: string; name: string; quantity: number; unit: string; spaceId: string; selected: boolean }
+
+function receiptCandidatesFromText(text: string, defaultSpaceId: string) {
+  const ignored = /^(합계|총액|과세|면세|부가세|공급가|결제|카드|현금|거스름|승인|영수증|사업자|대표|전화|주소|일시|날짜|시간|품명|단가|수량|금액|할인|소계|봉투|vat|total)/i
+  const candidates: ReceiptCandidate[] = []
+  for (const rawLine of text.split(/\r?\n/)) {
+    let line = rawLine.replace(/[|_[\]{}]/g, ' ').replace(/\s+/g, ' ').trim()
+    if (!line || line.length < 2 || ignored.test(line) || /^[-=*#\d,.\s]+$/.test(line)) continue
+    if (/\d{2,4}[./-]\d{1,2}[./-]\d{1,2}/.test(line)) continue
+    line = line.replace(/^\d{1,3}\s+/, '').replace(/\s+[-+]?\d{1,3}(?:,\d{3})+(?:\s*원)?\s*$/, '').trim()
+    let quantity = 1
+    const quantityMatch = line.match(/(?:\s|^)(\d{1,2})\s*(개|팩|봉|병|통|판|단)\s*$/)
+    if (quantityMatch) {
+      quantity = Math.max(1, Number(quantityMatch[1]))
+      line = line.slice(0, quantityMatch.index).trim()
+    } else line = line.replace(/\s+\d+\s*[xX*]\s*\d[\d,]*\s*$/, '').trim()
+    line = line.replace(/\s+\d[\d,]*\s*원?\s*$/, '').trim()
+    if (line.length < 2 || !/[가-힣A-Za-z]/.test(line)) continue
+    const normalized = line.slice(0, 45)
+    if (candidates.some((item) => item.name === normalized)) continue
+    candidates.push({ id: crypto.randomUUID(), name: normalized, quantity, unit: '개', spaceId: defaultSpaceId, selected: true })
+  }
+  return candidates.slice(0, 50)
+}
+
+function receiptDateFromText(text: string) {
+  const match = text.match(/(20\d{2}|\d{2})[./-]\s*(\d{1,2})[./-]\s*(\d{1,2})/)
+  if (!match) return todayDate()
+  const year = match[1].length === 2 ? `20${match[1]}` : match[1]
+  return `${year}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`
+}
+
+function ReceiptScanner({ data, profileId, initialSpaceId, demoMode, onSaved }: { data: AppData; profileId: string; initialSpaceId: string; demoMode: boolean; onSaved: () => Promise<void> }) {
+  const [imageUrl, setImageUrl] = useState('')
+  const [candidates, setCandidates] = useState<ReceiptCandidate[]>([])
+  const [purchaseDate, setPurchaseDate] = useState(todayDate())
+  const [progress, setProgress] = useState(0)
+  const [recognizing, setRecognizing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const selectedCount = candidates.filter((item) => item.selected && item.name.trim()).length
+  const update = (id: string, patch: Partial<ReceiptCandidate>) => setCandidates((current) => current.map((item) => item.id === id ? { ...item, ...patch } : item))
+  const recognize = async (file: File) => {
+    if (imageUrl) URL.revokeObjectURL(imageUrl)
+    setImageUrl(URL.createObjectURL(file)); setCandidates([]); setRecognizing(true); setProgress(0)
+    try {
+      const { createWorker } = await import('tesseract.js')
+      const worker = await createWorker(['kor', 'eng'], undefined, { logger: (message) => { if (message.status === 'recognizing text') setProgress(Math.round((message.progress || 0) * 100)) } })
+      const result = await worker.recognize(file)
+      await worker.terminate()
+      const next = receiptCandidatesFromText(result.data.text, initialSpaceId || data.spaces[0]?.id || '')
+      setPurchaseDate(receiptDateFromText(result.data.text)); setCandidates(next)
+      if (!next.length) void showAppAlert('상품으로 판단할 글자를 찾지 못했어요. 영수증을 밝고 평평하게 촬영해 다시 시도해 주세요.', '인식 결과가 없어요', 'warning')
+    } catch (error) { void showAppAlert(error instanceof Error ? error.message : '영수증을 인식하지 못했습니다.', 'OCR 처리 실패', 'danger') }
+    finally { setRecognizing(false) }
+  }
+  const saveAll = async () => {
+    const selected = candidates.filter((item) => item.selected && item.name.trim() && item.spaceId)
+    if (!selected.length) return showAppAlert('저장할 상품을 하나 이상 선택해 주세요.', '상품을 선택해 주세요', 'warning')
+    if (demoMode) return showAppAlert(`${selected.length}개 상품의 일괄 등록 흐름을 확인했어요. 로그인 후 실제로 저장됩니다.`)
+    setSaving(true)
+    try {
+      await Promise.all(selected.map((item) => createInventoryItem({ kitchen_id: data.kitchen.id, storage_space_id: item.spaceId, catalog_product_id: null, created_by: profileId, product_name: item.name.trim(), alias: null, barcode: null, image_path: null, category: null, quantity: Math.max(.1, item.quantity || 1), unit: item.unit, purchased_at: purchaseDate, opened_at: null, expiration_date: null, use_by_date: null, recommended_use_date: null, memo: '영수증으로 등록', registration_method: 'bulk' })))
+      await onSaved(); void showAppAlert(`${selected.length}개 상품을 저장했어요. 기한이나 카테고리는 상품 상세에서 보완할 수 있어요.`, '영수증 등록 완료')
+    } catch (error) { void showAppAlert(error instanceof Error ? error.message : '상품을 저장하지 못했습니다.', '일괄 저장 실패', 'danger') }
+    finally { setSaving(false) }
+  }
+  return <section className="receipt-scanner"><label className="receipt-photo">{imageUrl ? <img src={imageUrl} alt="선택한 영수증" /> : <ReceiptText />}<span><b>영수증 촬영 또는 선택</b><small>상품명과 구매일을 기기에서 인식해요.</small></span><input type="file" accept="image/*" capture="environment" disabled={recognizing} onChange={(event) => { const file = event.target.files?.[0]; if (file) void recognize(file); event.currentTarget.value = '' }} /></label>{recognizing && <div className="receipt-progress"><span style={{ width: `${progress}%` }} /><b>영수증 읽는 중 {progress}%</b></div>}{candidates.length > 0 && <><div className="receipt-review-head"><div><b>인식된 상품</b><span>{selectedCount}/{candidates.length}개 선택</span></div><label><span>구매일</span><input type="date" value={purchaseDate} onChange={(event) => setPurchaseDate(event.target.value)} /></label></div><p className="receipt-guide">잘못 인식된 이름과 수량을 고친 뒤 저장할 상품만 선택해 주세요.</p><div className="receipt-items">{candidates.map((item) => <article className={item.selected ? 'selected' : ''} key={item.id}><button className="receipt-select" aria-label={`${item.name} 선택`} onClick={() => update(item.id, { selected: !item.selected })}>{item.selected && <Check />}</button><input className="receipt-name" value={item.name} onChange={(event) => update(item.id, { name: event.target.value })} /><input className="receipt-quantity" inputMode="decimal" value={item.quantity} onChange={(event) => update(item.id, { quantity: Math.max(.1, Number(event.target.value) || 1) })} /><select value={item.unit} onChange={(event) => update(item.id, { unit: event.target.value })}><option>개</option><option>팩</option><option>봉</option><option>병</option><option>통</option><option>g</option><option>kg</option></select><select className="receipt-space" value={item.spaceId} onChange={(event) => update(item.id, { spaceId: event.target.value })}>{data.spaces.map((space) => <option value={space.id} key={space.id}>{space.name}</option>)}</select></article>)}</div><button className="primary-button" disabled={saving || !selectedCount} onClick={() => void saveAll()}>{saving ? <LoaderCircle className="spin" /> : <PackageCheck />} 선택한 {selectedCount}개 저장</button></>}</section>
 }
 
 function BarcodeCameraScanner({ onDetected }: { onDetected: (barcode: string) => Promise<void> }) {

@@ -16,6 +16,7 @@
     "react": "latest",
     "react-dom": "latest",
     "react-router-dom": "^7.18.2",
+    "tesseract.js": "^7.0.0",
     "typescript": "latest",
     "vite": "latest"
   },
