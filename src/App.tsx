@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { IScannerControls } from '@zxing/browser'
 import {
-  Apple, ArrowLeft, Beef, Bell, BookOpen, BottleWine, Box, Camera, Carrot, Check, ChevronRight, CircleUserRound, Cookie, CupSoda,
+  Activity, Apple, ArrowLeft, BarChart3, Beef, Bell, BookOpen, BottleWine, Box, Camera, Carrot, Check, ChevronRight, CircleUserRound, Cookie, CupSoda,
   Clock3, DoorOpen, Egg, Fish, Home, LayoutGrid, List, LoaderCircle, LogOut, Map, MessageCircle, Milk, Package, PackageCheck, PenLine,
   Plus, ReceiptText, Refrigerator, ScanLine, Search, Settings2, Share2, ShieldCheck, ShoppingBasket, Snowflake, Sparkles, Trash2, Undo2, UtensilsCrossed, Wheat, X,
 } from 'lucide-react'
@@ -12,7 +12,7 @@ import { isSupabaseConfigured } from './lib/supabase'
 import {
   approveBarcodeProduct, consumeInventoryItems, createInventoryItem, createKitchenMap, createRecipeShare, createSharedBarcodeProduct, createShoppingItem, createStorageSpace, deleteKitchenMap, deletePersonalRecipe, deleteSharedBarcodeProduct, deleteShoppingItem, deleteStorageSpace, finishInventoryItem, getDaysLeft, loadAppData, loadBarcodeProductSubmissions, loadSharedBarcodeProducts, loadSharedRecipe, lookupBarcode,
   markNotificationRead, markNotificationsRead, moveInventoryItem, rejectBarcodeProduct, searchPersonalProducts, submitBarcodeProduct, toggleSavedRecipe, updateKitchenName, updateProfileNickname, updateStorageSpace,
-  savePersonalRecipe, saveSharedRecipe, updateInventoryItem, updateKitchenMap, updateSharedBarcodeProduct, updateShoppingItem, updateStorageSpaces, type AppData,
+  loadAdminUsageAnalytics, recordAppVisit, savePersonalRecipe, saveSharedRecipe, updateInventoryItem, updateKitchenMap, updateSharedBarcodeProduct, updateShoppingItem, updateStorageSpaces, type AdminUsageAnalytics, type AppData,
 } from './services/kitchenService'
 import { getInventoryImageUrl, uploadInventoryImage } from './services/imageService'
 import type { AppNotification, BarcodeProductSubmission, InventoryItem, KitchenMap as KitchenMapPage, ProductCatalogItem, Profile, Recipe, SharedRecipe, ShoppingListItem, StorageSpace } from './types'
@@ -138,6 +138,7 @@ function App() {
   const [query, setQuery] = useState('')
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [barcodeAdminOpen, setBarcodeAdminOpen] = useState(false)
+  const [usageAdminOpen, setUsageAdminOpen] = useState(false)
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
   const [movingItem, setMovingItem] = useState<InventoryItem | null>(null)
   const [consumingItem, setConsumingItem] = useState<InventoryItem | null>(null)
@@ -174,6 +175,11 @@ function App() {
     }
     if (profile) void refresh()
   }, [profile, demoMode]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!profile || demoMode) return
+    void recordAppVisit().catch((error) => console.warn('접속 기록 저장 실패:', error))
+  }, [profile?.id, demoMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { localStorage.setItem('last-main-tab', tab) }, [tab])
 
@@ -222,7 +228,7 @@ function App() {
           {tab === 'search' && <SearchScreen data={data} query={query} setQuery={setQuery} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onSelectItem={setSelectedItem} onChanged={refresh} />}
           {tab === 'consume' && <ConsumptionScreen data={data} demoMode={demoMode} onChanged={refresh} />}
           {tab === 'recipes' && <RecipeScreen data={data} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onChanged={refresh} />}
-          {tab === 'profile' && <ProfileScreen profile={profile} kitchenName={data.kitchen.name} kitchenId={data.kitchen.id} demoMode={demoMode} onExitDemo={() => setDemoMode(false)} onSignOut={signOut} onGoMap={() => setTab('map')} onGoRecipes={() => setTab('recipes')} onOpenNotifications={() => setNotificationsOpen(true)} onOpenBarcodeAdmin={() => setBarcodeAdminOpen(true)} onChanged={async () => { await refreshProfile(); await refresh() }} />}
+          {tab === 'profile' && <ProfileScreen profile={profile} kitchenName={data.kitchen.name} kitchenId={data.kitchen.id} demoMode={demoMode} onExitDemo={() => setDemoMode(false)} onSignOut={signOut} onGoMap={() => setTab('map')} onGoRecipes={() => setTab('recipes')} onOpenNotifications={() => setNotificationsOpen(true)} onOpenBarcodeAdmin={() => setBarcodeAdminOpen(true)} onOpenUsageAdmin={() => setUsageAdminOpen(true)} onChanged={async () => { await refreshProfile(); await refresh() }} />}
         </main>
       )}
 
@@ -230,6 +236,7 @@ function App() {
       {addOpen && data && data.spaces.length > 0 && <AddItemSheet data={data} initialSpaceId={addTargetSpaceId} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onClose={() => setAddOpen(false)} onSaved={async () => { setAddOpen(false); await refresh() }} />}
       {notificationsOpen && <NotificationsSheet notifications={data?.notifications || []} demoMode={demoMode} profileId={profile?.id || ''} onClose={() => setNotificationsOpen(false)} onRead={refresh} onNavigate={openNotificationTarget} />}
       {barcodeAdminOpen && profile?.is_admin && <BarcodeAdminSheet onClose={() => setBarcodeAdminOpen(false)} />}
+      {usageAdminOpen && profile?.is_admin && <AdminUsageSheet onClose={() => setUsageAdminOpen(false)} />}
       {selectedItem && data && <ItemDetailSheet item={selectedItem} spaces={data.spaces} demoMode={demoMode} onClose={() => setSelectedItem(null)} onSaved={async () => { setSelectedItem(null); await refresh() }} />}
       {movingItem && data && <MoveItemSheet item={movingItem} spaces={data.spaces} onClose={() => setMovingItem(null)} onMove={async (targetId) => { if (demoMode) return showAppAlert('미리보기에서는 실제 이동이 저장되지 않아요.'); await moveInventoryItem(movingItem, targetId, profile?.id || ''); setMovingItem(null); await refresh() }} />}
       {consumingItem && <ConsumeItemSheet item={consumingItem} onClose={() => setConsumingItem(null)} onConsume={async (amount) => { if (demoMode) return showAppAlert('미리보기에서는 실제 변경이 저장되지 않아요.'); await consumeInventoryItems([{ item: consumingItem, amount }]); setConsumingItem(null); await refresh() }} />}
@@ -1311,7 +1318,7 @@ function SharedRecipeSheet({ shareId, items, onClose, onSaved }: { shareId: stri
   return <RecipeDetail recipe={recipe} items={items} saved={saved} authorName={shared.author_name} onToggleSave={() => void save()} onClose={onClose} />
 }
 
-function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, onSignOut, onGoMap, onGoRecipes, onOpenNotifications, onOpenBarcodeAdmin, onChanged }: { profile: Profile | null; kitchenName: string; kitchenId: string; demoMode: boolean; onExitDemo: () => void; onSignOut: () => Promise<void>; onGoMap: () => void; onGoRecipes: () => void; onOpenNotifications: () => void; onOpenBarcodeAdmin: () => void; onChanged: () => Promise<void> }) {
+function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, onSignOut, onGoMap, onGoRecipes, onOpenNotifications, onOpenBarcodeAdmin, onOpenUsageAdmin, onChanged }: { profile: Profile | null; kitchenName: string; kitchenId: string; demoMode: boolean; onExitDemo: () => void; onSignOut: () => Promise<void>; onGoMap: () => void; onGoRecipes: () => void; onOpenNotifications: () => void; onOpenBarcodeAdmin: () => void; onOpenUsageAdmin: () => void; onChanged: () => Promise<void> }) {
   const nickname = profile?.nickname || '미리보기 사용자'
   const [editing, setEditing] = useState<'profile' | 'kitchen' | null>(null)
   const [value, setValue] = useState('')
@@ -1333,10 +1340,34 @@ function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, 
     <div className="page-heading"><div><p>반가워요</p><h1>{nickname}</h1></div></div>
     <div className="profile-card"><CircleUserRound /><div><b>{nickname}</b><span>{demoMode ? '미리보기 모드' : profile?.username ? `@${profile.username} · 아이디 계정` : '로그인 계정'}</span></div>{!demoMode && <button onClick={() => openEdit('profile')}><PenLine /></button>}</div>
     <section className="profile-kitchen"><div><span>내 주방</span><b>{kitchenName}</b></div>{!demoMode && <button onClick={() => openEdit('kitchen')}><PenLine /> 이름 수정</button>}</section>
-    <div className="settings-list"><button onClick={onOpenNotifications}><Bell /><span><b>알림 내역</b><small>소비기한 알림을 확인합니다</small></span><ChevronRight /></button><button onClick={onGoMap}><Map /><span><b>내 주방 관리</b><small>보관공간 이름과 배치를 관리합니다</small></span><ChevronRight /></button><button onClick={onGoRecipes}><BookOpen /><span><b>내 레시피북</b><small>저장한 레시피를 보고 새로운 요리를 탐색합니다</small></span><ChevronRight /></button><button onClick={() => window.open('https://open.kakao.com/o/sGVSpyIi', '_blank', 'noopener,noreferrer')}><MessageCircle /><span><b>앱 문의하기</b><small>오류 제보와 기능 문의를 남겨주세요</small></span><ChevronRight /></button>{profile?.is_admin && !demoMode && <button className="admin-setting" onClick={onOpenBarcodeAdmin}><ShieldCheck /><span><b>공용 바코드 관리</b><small>사용자가 등록한 상품을 검토하고 승인합니다</small></span><ChevronRight /></button>}</div>
+    <div className="settings-list"><button onClick={onOpenNotifications}><Bell /><span><b>알림 내역</b><small>소비기한 알림을 확인합니다</small></span><ChevronRight /></button><button onClick={onGoMap}><Map /><span><b>내 주방 관리</b><small>보관공간 이름과 배치를 관리합니다</small></span><ChevronRight /></button><button onClick={onGoRecipes}><BookOpen /><span><b>내 레시피북</b><small>저장한 레시피를 보고 새로운 요리를 탐색합니다</small></span><ChevronRight /></button><button onClick={() => window.open('https://open.kakao.com/o/sGVSpyIi', '_blank', 'noopener,noreferrer')}><MessageCircle /><span><b>앱 문의하기</b><small>오류 제보와 기능 문의를 남겨주세요</small></span><ChevronRight /></button>{profile?.is_admin && !demoMode && <><button className="admin-setting" onClick={onOpenUsageAdmin}><BarChart3 /><span><b>가입자·접속 통계</b><small>가입과 서비스 이용 현황을 확인합니다</small></span><ChevronRight /></button><button className="admin-setting" onClick={onOpenBarcodeAdmin}><ShieldCheck /><span><b>공용 바코드 관리</b><small>사용자가 등록한 상품을 검토하고 승인합니다</small></span><ChevronRight /></button></>}</div>
     <button className="signout" onClick={demoMode ? onExitDemo : onSignOut}><LogOut /> {demoMode ? '로그인 화면으로' : '로그아웃'}</button>
     {editing && <div className="sheet-backdrop"><section className="simple-sheet"><div className="sheet-head"><div><p>{editing === 'profile' ? '마이페이지에 표시됩니다' : '홈 화면에 표시됩니다'}</p><h2>{editing === 'profile' ? '이름 수정' : '주방 이름 수정'}</h2></div><button onClick={() => setEditing(null)}><X /></button></div><label><span>{editing === 'profile' ? '표시 이름' : '주방 이름'}</span><input autoFocus maxLength={30} value={value} onChange={(event) => setValue(event.target.value)} /></label><button className="primary-button" disabled={busy || !value.trim()} onClick={() => void save()}>{busy ? <LoaderCircle className="spin" /> : <Check />} 저장하기</button></section></div>}
   </>
+}
+
+function AdminUsageSheet({ onClose }: { onClose: () => void }) {
+  const [analytics, setAnalytics] = useState<AdminUsageAnalytics | null>(null)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+  const load = async () => {
+    setLoading(true); setError('')
+    try { setAnalytics(await loadAdminUsageAnalytics()) }
+    catch (nextError) { setError(nextError instanceof Error ? nextError.message : '운영 통계를 불러오지 못했습니다.') }
+    finally { setLoading(false) }
+  }
+  useEffect(() => { void load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const maxDaily = Math.max(1, ...(analytics?.daily.map((item) => Math.max(item.activeUsers, item.signups)) || [1]))
+  const maxHourly = Math.max(1, ...(analytics?.hourly.map((item) => item.visits) || [1]))
+  const formatTime = (value: string | null) => value ? new Intl.DateTimeFormat('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value)) : '접속 기록 없음'
+  return <div className="sheet-backdrop admin-usage-backdrop"><section className="admin-usage-sheet"><div className="sheet-head"><div><p>관리자 전용 · 개인 주방 내용은 수집하지 않아요</p><h2>가입자·접속 통계</h2></div><button onClick={onClose}><X /></button></div>
+    {loading ? <div className="admin-loading"><LoaderCircle className="spin" /> 통계 집계 중</div> : error ? <div className="admin-usage-error"><Activity /><p>{error}</p><button onClick={() => void load()}>다시 불러오기</button></div> : analytics && <>
+      <div className="admin-metric-grid"><article><span>전체 가입자</span><b>{analytics.totalUsers.toLocaleString()}명</b><small>오늘 +{analytics.newUsersToday}</small></article><article><span>오늘 활성 사용자</span><b>{analytics.activeToday.toLocaleString()}명</b><small>오늘 접속 {analytics.visitsToday}회</small></article><article><span>최근 7일 가입</span><b>+{analytics.newUsers7d.toLocaleString()}명</b><small>신규 사용자</small></article><article><span>최근 7일 활성</span><b>{analytics.active7d.toLocaleString()}명</b><small>중복 사용자 제외</small></article></div>
+      <section className="admin-chart-card"><div><h3>최근 14일 흐름</h3><span><i className="active" /> 활성 사용자 <i className="signup" /> 가입</span></div><div className="admin-daily-chart">{analytics.daily.map((item, index) => <div key={item.date}><span className="bars"><i className="active" style={{ height: `${Math.max(3, item.activeUsers / maxDaily * 100)}%` }} title={`활성 ${item.activeUsers}명`} /><i className="signup" style={{ height: `${Math.max(3, item.signups / maxDaily * 100)}%` }} title={`가입 ${item.signups}명`} /></span><small>{index % 2 === 0 ? new Date(`${item.date}T00:00:00`).getDate() : ''}</small></div>)}</div></section>
+      <section className="admin-chart-card"><div><h3>접속 시간대</h3><span>최근 30일 · 한국 시간</span></div><div className="admin-hourly-chart">{analytics.hourly.map((item) => <div key={item.hour}><i style={{ height: `${Math.max(2, item.visits / maxHourly * 100)}%` }} title={`${item.hour}시 ${item.visits}회`} />{item.hour % 3 === 0 && <small>{item.hour}시</small>}</div>)}</div></section>
+      <section className="admin-recent-users"><div><h3>최근 가입자</h3><span>최대 30명</span></div>{analytics.recentUsers.map((user) => <article key={user.id}><CircleUserRound /><span><b>{user.nickname || user.username || '이름 없음'}</b><small>{user.username ? `@${user.username} · ` : ''}가입 {formatTime(user.created_at)}</small></span><em>{formatTime(user.last_seen_at)}</em></article>)}</section>
+    </>}
+  </section></div>
 }
 
 function AdminBarcodePhotoField({ preview, disabled, onSelect, onRemove }: { preview: string; disabled: boolean; onSelect: (file: File) => void; onRemove: () => void }) {

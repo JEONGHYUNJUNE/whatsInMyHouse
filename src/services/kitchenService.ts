@@ -12,6 +12,30 @@ export type AppData = {
   shoppingItems: ShoppingListItem[]
 }
 
+export type AdminUsageAnalytics = {
+  totalUsers: number
+  newUsers7d: number
+  newUsersToday: number
+  activeToday: number
+  active7d: number
+  visitsToday: number
+  daily: { date: string; signups: number; activeUsers: number; visits: number }[]
+  hourly: { hour: number; visits: number }[]
+  recentUsers: { id: string; username: string | null; nickname: string; created_at: string; last_seen_at: string | null }[]
+}
+
+export async function recordAppVisit() {
+  const { error } = await supabase.rpc('record_app_visit')
+  if (error) throw error
+}
+
+export async function loadAdminUsageAnalytics() {
+  const { data, error } = await supabase.rpc('get_admin_usage_analytics')
+  if (error) throw error
+  if (!data) throw new Error('관리자만 운영 통계를 확인할 수 있습니다.')
+  return data as AdminUsageAnalytics
+}
+
 export async function loadAppData(profileId: string): Promise<AppData> {
   const { data: membership, error: membershipError } = await supabase
     .from('kitchen_members')
