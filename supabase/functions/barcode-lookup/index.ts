@@ -5,6 +5,7 @@ const corsHeaders = {
 
 type FoodSafetyRow = Record<string, string | undefined>
 
+// 식품안전나라 Open API: I2570(유통 바코드), C005(바코드 연계), C002(품목 상세)를 조회합니다.
 async function fetchFoodSafety(service: string, key: string, filter: string) {
   const url = `https://openapi.foodsafetykorea.go.kr/api/${encodeURIComponent(key)}/${service}/json/1/5/${filter}`
   const response = await fetch(url, { signal: AbortSignal.timeout(4000) })
@@ -14,6 +15,7 @@ async function fetchFoodSafety(service: string, key: string, filter: string) {
 }
 
 async function fetchHaccpProduct(serviceKey: string, reportNo: string) {
+  // 공공데이터포털 HACCP 제품 이미지 API: 품목제조번호를 이미지 URL과 연결합니다.
   const url = new URL('https://apis.data.go.kr/B553748/CertImgListServiceV3/getCertImgListServiceV3')
   url.searchParams.set('ServiceKey', serviceKey)
   url.searchParams.set('prdlstReportNo', reportNo)
@@ -28,6 +30,7 @@ async function fetchHaccpProduct(serviceKey: string, reportNo: string) {
 }
 
 async function fetchOpenFoodFactsImage(barcode: string) {
+  // Open Food Facts: 국내 API에 상품명은 있지만 사진이 없을 때 이미지만 보완합니다.
   const url = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}?fields=image_front_small_url,image_front_url,image_url`
   const response = await fetch(url, {
     headers: { 'User-Agent': 'WhatsInMyHouse/1.0 (barcode image lookup)' },
@@ -44,6 +47,8 @@ function plainText(value: unknown) {
 }
 
 async function fetchNaverWebCandidates(barcode: string) {
+  // NAVER API HUB 웹 문서 검색: 모든 정형 API가 실패했을 때만 실행하는 최종 후보 검색입니다.
+  // 검색 결과는 정확성을 보장할 수 없어 앱에서 사용자가 상품명을 확인한 뒤 선택합니다.
   const clientId = Deno.env.get('NAVER_API_HUB_CLIENT_ID')
   const clientSecret = Deno.env.get('NAVER_API_HUB_CLIENT_SECRET')
   if (!clientId || !clientSecret) return []
@@ -74,6 +79,7 @@ Deno.serve(async (request) => {
     const apiKey = Deno.env.get('FOOD_SAFETY_KOREA_API_KEY')
     if (!apiKey) return Response.json({ found: false, reason: 'api_key_not_configured' }, { status: 503, headers: corsHeaders })
 
+    // 국내 데이터는 I2570을 우선 사용하고, C005를 보완 경로로 함께 조회합니다.
     const [distributionRows, linkedRows] = await Promise.all([
       fetchFoodSafety('I2570', apiKey, `BRCD_NO=${encodeURIComponent(barcode)}`).catch(() => []),
       fetchFoodSafety('C005', apiKey, `BAR_CD=${encodeURIComponent(barcode)}`).catch(() => []),
@@ -86,6 +92,7 @@ Deno.serve(async (request) => {
       return Response.json({ found: false, candidates, source: candidates.length ? 'naver_web_search' : undefined }, { headers: corsHeaders })
     }
 
+    // 바코드 행의 품목제조번호로 C002 상세 정보와 HACCP 이미지를 추가 조회합니다.
     const reportNo = barcodeProduct.PRDLST_REPORT_NO || ''
     const productRows = reportNo ? await fetchFoodSafety('C002', apiKey, `PRDLST_REPORT_NO=${encodeURIComponent(reportNo)}`) : []
     const product = productRows.find((row) => row.PRDLST_REPORT_NO === reportNo) || productRows[0]

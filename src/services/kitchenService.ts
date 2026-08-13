@@ -48,6 +48,11 @@ export async function loadAppData(profileId: string): Promise<AppData> {
   if (membershipError) throw membershipError
   const kitchen = membership.kitchens as unknown as Kitchen
 
+  // 로그인 시점과 데이터 새로고침 시점에 기한 알림을 동기화합니다.
+  // DB 함수가 동일 상품·동일 날짜의 발송 이력을 확인하므로 중복 알림은 생기지 않습니다.
+  const { error: expiryNotificationError } = await supabase.rpc('sync_my_expiry_notifications')
+  if (expiryNotificationError) console.warn('기한 알림 동기화 실패:', expiryNotificationError)
+
   const [mapsResult, spacesResult, itemsResult, recipesResult, savedRecipesResult, notificationsResult, shoppingItemsResult] = await Promise.all([
     supabase.from('kitchen_maps').select('*').eq('kitchen_id', kitchen.id).order('sort_order'),
     supabase.from('storage_spaces').select('*').eq('kitchen_id', kitchen.id).order('sort_order'),
@@ -433,6 +438,8 @@ export async function rejectBarcodeProduct(submissionId: string) {
 }
 
 export async function lookupBarcode(barcode: string, profileId?: string, kitchenId?: string) {
+  // 1) 같은 사용자가 이전에 등록한 상품을 가장 먼저 사용합니다.
+  // 개인이 정한 상품명과 사진은 다른 사용자에게 자동으로 공유하지 않습니다.
   const shared = await supabase.from('product_catalog').select('id').eq('barcode', barcode).eq('data_source', 'admin').maybeSingle()
   if (kitchenId) {
     let householdQuery = supabase.from('inventory_items').select('product_name, category, unit, image_path, catalog_product_id').eq('kitchen_id', kitchenId).eq('barcode', barcode)
@@ -444,16 +451,21 @@ export async function lookupBarcode(barcode: string, profileId?: string, kitchen
       return { catalogId: household.data.catalog_product_id || shared.data?.id || null, name: household.data.product_name, imageUrl, brand: '', category: household.data.category || '', unit: household.data.unit || '개', source: 'household', needsSharedReview: !shared.data }
     }
   }
+  // 2) 관리자가 검토·승인한 공용 바코드 DB를 조회합니다.
   const local = await supabase.from('product_catalog').select('id, product_name, brand, category, default_unit, image_url, data_source').eq('barcode', barcode).neq('data_source', 'user').maybeSingle()
   if (local.data) return { catalogId: local.data.id, name: local.data.product_name, imageUrl: local.data.image_url || '', brand: local.data.brand || '', category: local.data.category || '', unit: local.data.default_unit || '개', source: local.data.data_source, needsSharedReview: local.data.data_source !== 'admin' }
 
+  // 3) 식품안전나라 국내 유통 바코드/품목제조 정보를 Edge Function에서 조회합니다.
   const { data: foodSafety } = await supabase.functions.invoke('barcode-lookup', { body: { barcode } }).catch(() => ({ data: null }))
   const hasDomesticProduct = Boolean(foodSafety?.found && String(foodSafety.name || '').trim())
+  // 4) 국내 공공 데이터에 없으면 Open Food Facts에서 상품명과 이미지를 보완합니다.
   const openFoodFacts = hasDomesticProduct ? null : await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}?fields=product_name,product_name_ko,brands,image_front_small_url,categories_tags`, { signal: AbortSignal.timeout(5000) })
     .then((response) => response.ok ? response.json() : null).catch(() => null)
   const offProduct = openFoodFacts?.product || null
   const name = hasDomesticProduct ? foodSafety.name : offProduct?.product_name_ko || offProduct?.product_name || ''
   if (!name) {
+    // 5) 마지막 방어 단계입니다. NAVER 웹 검색 후보는 자동 확정하지 않고 사용자가 확인해 선택합니다.
+    // 후보도 없으면 등록 화면의 상품명을 사용자가 직접 입력합니다.
     const { data: webFallback } = await supabase.functions.invoke('barcode-lookup', { body: { barcode, webFallback: true } }).catch(() => ({ data: null }))
     return webFallback?.candidates?.length ? { candidates: webFallback.candidates as { name: string; description: string; url: string }[], source: 'naver_web_search' as const } : null
   }
