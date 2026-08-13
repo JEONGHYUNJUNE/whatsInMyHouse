@@ -8,7 +8,7 @@ import {
 import { useAuth } from './contexts/AuthContext'
 import { showAppAlert, showAppConfirm } from './contexts/AppDialogContext'
 import { demoData } from './demoData'
-import { isSupabaseConfigured } from './lib/supabase'
+import { isSupabaseConfigured, supabase } from './lib/supabase'
 import {
   approveBarcodeProduct, consumeInventoryItems, createInventoryItem, createKitchenMap, createRecipeShare, createSharedBarcodeProduct, createShoppingItem, createStorageSpace, deleteKitchenMap, deletePersonalRecipe, deleteSharedBarcodeProduct, deleteShoppingItem, deleteStorageSpace, finishInventoryItem, getDaysLeft, loadAppData, loadBarcodeProductSubmissions, loadSharedBarcodeProducts, loadSharedRecipe, lookupBarcode,
   markNotificationRead, markNotificationsRead, moveInventoryItem, rejectBarcodeProduct, searchPersonalProducts, submitBarcodeProduct, toggleSavedRecipe, updateKitchenName, updateProfileNickname, updateStorageSpace,
@@ -35,6 +35,7 @@ const spaceIcons: Record<string, React.ReactNode> = {
 
 const categoryOptions = ['채소', '과일', '육류', '수산물', '달걀', '유제품', '곡류/면', '음료', '조미료/소스', '간식', '냉동식품', '기타']
 type DeadlineType = 'use_by' | 'expiration' | 'purchase'
+const recoveryQuestions = ['어릴 적 가장 친했던 친구의 이름은?', '처음 키운 반려동물의 이름은?', '가장 기억에 남는 여행지는?', '어릴 적 살았던 동네 이름은?', '나만 기억하는 별명은?']
 
 const freshFoodRecommendations = [
   { pattern: /콩나물|숙주/, days: 3 },
@@ -124,7 +125,7 @@ function useLatestAppVersion() {
 
 function App() {
   const { updateAvailable, applyUpdate } = useLatestAppVersion()
-  const { session, profile, loading, signInWithCredentials, signUpWithCredentials, signOut, refreshProfile } = useAuth()
+  const { session, profile, loading, signInWithCredentials, signUpWithCredentials, checkSignupIdentifiers, changePassword, signOut, refreshProfile } = useAuth()
   const [demoMode, setDemoMode] = useState(false)
   const [data, setData] = useState<AppData | null>(null)
   const [dataLoading, setDataLoading] = useState(true)
@@ -205,7 +206,7 @@ function App() {
 
   if (loading) return <FullLoader />
   if (onboardingOpen && !sharedRecipeId) return <AppOnboarding onComplete={completeOnboarding} />
-  if (!session && !demoMode) return <LoginPage onSignIn={signInWithCredentials} onSignUp={signUpWithCredentials} onDemo={() => setDemoMode(true)} onOpenOnboarding={() => setOnboardingOpen(true)} />
+  if (!session && !demoMode) return <LoginPage onSignIn={signInWithCredentials} onSignUp={signUpWithCredentials} onCheckIdentifiers={checkSignupIdentifiers} onDemo={() => setDemoMode(true)} onOpenOnboarding={() => setOnboardingOpen(true)} />
 
   return (
     <div className="app-shell">
@@ -228,7 +229,7 @@ function App() {
           {tab === 'search' && <SearchScreen data={data} query={query} setQuery={setQuery} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onSelectItem={setSelectedItem} onChanged={refresh} />}
           {tab === 'consume' && <ConsumptionScreen data={data} demoMode={demoMode} onChanged={refresh} />}
           {tab === 'recipes' && <RecipeScreen data={data} profileId={profile?.id || 'demo-profile'} demoMode={demoMode} onChanged={refresh} />}
-          {tab === 'profile' && <ProfileScreen profile={profile} kitchenName={data.kitchen.name} kitchenId={data.kitchen.id} demoMode={demoMode} onExitDemo={() => setDemoMode(false)} onSignOut={signOut} onGoMap={() => setTab('map')} onGoRecipes={() => setTab('recipes')} onOpenNotifications={() => setNotificationsOpen(true)} onOpenBarcodeAdmin={() => setBarcodeAdminOpen(true)} onOpenUsageAdmin={() => setUsageAdminOpen(true)} onChanged={async () => { await refreshProfile(); await refresh() }} />}
+          {tab === 'profile' && <ProfileScreen profile={profile} kitchenName={data.kitchen.name} kitchenId={data.kitchen.id} demoMode={demoMode} onExitDemo={() => setDemoMode(false)} onSignOut={signOut} onChangePassword={changePassword} onGoMap={() => setTab('map')} onGoRecipes={() => setTab('recipes')} onOpenNotifications={() => setNotificationsOpen(true)} onOpenBarcodeAdmin={() => setBarcodeAdminOpen(true)} onOpenUsageAdmin={() => setUsageAdminOpen(true)} onChanged={async () => { await refreshProfile(); await refresh() }} />}
         </main>
       )}
 
@@ -241,6 +242,7 @@ function App() {
       {movingItem && data && <MoveItemSheet item={movingItem} spaces={data.spaces} onClose={() => setMovingItem(null)} onMove={async (targetId) => { if (demoMode) return showAppAlert('미리보기에서는 실제 이동이 저장되지 않아요.'); await moveInventoryItem(movingItem, targetId, profile?.id || ''); setMovingItem(null); await refresh() }} />}
       {consumingItem && <ConsumeItemSheet item={consumingItem} onClose={() => setConsumingItem(null)} onConsume={async (amount) => { if (demoMode) return showAppAlert('미리보기에서는 실제 변경이 저장되지 않아요.'); await consumeInventoryItems([{ item: consumingItem, amount }]); setConsumingItem(null); await refresh() }} />}
       {sharedRecipeId && data && !demoMode && <SharedRecipeSheet shareId={sharedRecipeId} items={data.items} onClose={() => { window.history.replaceState({}, '', '/'); setSharedRecipeId(null) }} onSaved={refresh} />}
+      {session?.user.user_metadata?.must_change_password === true && <ChangePasswordSheet required onSave={changePassword} />}
     </div>
   )
 }
@@ -332,18 +334,34 @@ function DataLoadError({ onRetry }: { onRetry: () => Promise<void> }) {
   return <section className="data-error"><Box /><h2>주방을 불러오지 못했어요</h2><p>데모 데이터는 표시하지 않았습니다.<br />연결 상태를 확인하고 다시 시도해 주세요.</p><button onClick={() => void onRetry()}>다시 시도</button></section>
 }
 
-function LoginPage({ onSignIn, onSignUp, onDemo, onOpenOnboarding }: { onSignIn: (username: string, password: string) => Promise<void>; onSignUp: (username: string, password: string, nickname: string) => Promise<void>; onDemo: () => void; onOpenOnboarding: () => void }) {
+function LoginPage({ onSignIn, onSignUp, onCheckIdentifiers, onDemo, onOpenOnboarding }: { onSignIn: (username: string, password: string) => Promise<void>; onSignUp: (username: string, password: string, nickname: string, recoveryQuestion: string, recoveryAnswer: string) => Promise<void>; onCheckIdentifiers: (username: string, nickname: string) => Promise<{ usernameAvailable: boolean; nicknameAvailable: boolean }>; onDemo: () => void; onOpenOnboarding: () => void }) {
   const [busy, setBusy] = useState(false)
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [passwordConfirm, setPasswordConfirm] = useState('')
   const [nickname, setNickname] = useState('')
+  const [recoveryQuestion, setRecoveryQuestion] = useState(recoveryQuestions[0])
+  const [recoveryAnswer, setRecoveryAnswer] = useState('')
+  const [recoveryOpen, setRecoveryOpen] = useState(false)
   const [error, setError] = useState('')
+  const [availability, setAvailability] = useState<{ usernameAvailable: boolean; nicknameAvailable: boolean } | null>(null)
+  const [checkingIdentifiers, setCheckingIdentifiers] = useState(false)
+  const passwordsMismatch = mode === 'signup' && Boolean(passwordConfirm) && password !== passwordConfirm
+  const checkIdentifiers = async () => {
+    if (!username || !nickname.trim()) return
+    setCheckingIdentifiers(true); setError('')
+    try { setAvailability(await onCheckIdentifiers(username, nickname)) }
+    catch { setError('중복 여부를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.') }
+    finally { setCheckingIdentifiers(false) }
+  }
   const submit = async (event: React.FormEvent) => {
-    event.preventDefault(); setBusy(true); setError('')
+    event.preventDefault(); setError('')
+    if (mode === 'signup' && password !== passwordConfirm) { setError('비밀번호가 일치하지 않습니다. 다시 확인해 주세요.'); return }
+    setBusy(true)
     try {
       if (mode === 'login') await onSignIn(username, password)
-      else await onSignUp(username, password, nickname)
+      else await onSignUp(username, password, nickname, recoveryQuestion, recoveryAnswer)
     } catch (nextError) { setError(nextError instanceof Error ? nextError.message : '처리하지 못했습니다.') }
     finally { setBusy(false) }
   }
@@ -352,18 +370,67 @@ function LoginPage({ onSignIn, onSignUp, onDemo, onOpenOnboarding }: { onSignIn:
     <p className="login-kicker">우리 집 식재료를 한눈에</p>
     <h1><span>집</span>에뭐있지</h1>
     <p>냉장고부터 팬트리까지<br />잊기 전에 기록하고, 버리기 전에 먹어요.</p>
-    <div className="auth-tabs"><button className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); setError('') }}>로그인</button><button className={mode === 'signup' ? 'active' : ''} onClick={() => { setMode('signup'); setError('') }}>회원가입</button></div>
+    <div className="auth-tabs"><button className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); setPasswordConfirm(''); setAvailability(null); setError('') }}>로그인</button><button className={mode === 'signup' ? 'active' : ''} onClick={() => { setMode('signup'); setPasswordConfirm(''); setAvailability(null); setError('') }}>회원가입</button></div>
     <form className="auth-form" onSubmit={submit}>
-      {mode === 'signup' && <label><span>별칭</span><input autoComplete="nickname" value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="앱에서 사용할 이름" /></label>}
-      <label><span>아이디</span><input autoCapitalize="none" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} placeholder="영문 소문자·숫자 4~20자" /></label>
+      {mode === 'signup' && <label><span>별칭</span><input autoComplete="nickname" value={nickname} onChange={(e) => { setNickname(e.target.value); setAvailability(null) }} onBlur={() => void checkIdentifiers()} placeholder="앱에서 사용할 이름" />{availability && <small className={availability.nicknameAvailable ? 'password-match' : 'password-mismatch'}>{availability.nicknameAvailable ? '사용할 수 있는 별칭이에요.' : '이미 사용 중인 별칭이에요.'}</small>}</label>}
+      <label><span>아이디</span><input autoCapitalize="none" autoComplete="username" value={username} onChange={(e) => { setUsername(e.target.value.toLowerCase()); setAvailability(null) }} onBlur={() => mode === 'signup' && void checkIdentifiers()} placeholder="영문 소문자·숫자 4~20자" />{mode === 'signup' && availability && <small className={availability.usernameAvailable ? 'password-match' : 'password-mismatch'}>{availability.usernameAvailable ? '사용할 수 있는 아이디예요.' : '이미 사용 중인 아이디예요.'}</small>}</label>
       <label><span>비밀번호</span><input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="8자 이상" /></label>
+      {mode === 'signup' && <label><span>비밀번호 확인</span><input className={passwordsMismatch ? 'invalid' : ''} type="password" autoComplete="new-password" value={passwordConfirm} onChange={(e) => setPasswordConfirm(e.target.value)} placeholder="비밀번호를 한 번 더 입력해 주세요" />{passwordConfirm && <small className={passwordsMismatch ? 'password-mismatch' : 'password-match'}>{passwordsMismatch ? '비밀번호가 일치하지 않아요.' : '비밀번호가 일치해요.'}</small>}</label>}
+      {mode === 'signup' && <><label><span>비밀번호 복구 질문</span><select value={recoveryQuestion} onChange={(e) => setRecoveryQuestion(e.target.value)}>{recoveryQuestions.map((question) => <option key={question}>{question}</option>)}</select></label><label><span>복구 답변</span><input value={recoveryAnswer} onChange={(e) => setRecoveryAnswer(e.target.value)} autoComplete="off" placeholder="본인만 기억할 답변을 입력해 주세요" /><small>답변은 암호화되어 저장되며 관리자도 볼 수 없어요.</small></label></>}
       {error && <p className="auth-error">{error}</p>}
-      <button className="google-button" type="submit" disabled={busy || !isSupabaseConfigured}>{busy ? <LoaderCircle className="spin" /> : mode === 'login' ? '로그인' : '가입하고 시작하기'}</button>
+      <button className="google-button" type="submit" disabled={busy || checkingIdentifiers || !isSupabaseConfigured || (mode === 'signup' && (!passwordConfirm || passwordsMismatch || recoveryAnswer.trim().length < 2 || availability?.usernameAvailable === false || availability?.nicknameAvailable === false))}>{busy || checkingIdentifiers ? <LoaderCircle className="spin" /> : mode === 'login' ? '로그인' : '가입하고 시작하기'}</button>
     </form>
+    {mode === 'login' && <button className="password-recovery-button" onClick={() => setRecoveryOpen(true)}>비밀번호를 잊으셨나요?</button>}
     <button className="demo-button" onClick={onDemo}>로그인 없이 둘러보기</button>
     <button className="intro-button" onClick={onOpenOnboarding}><Sparkles /> 앱 소개 다시 보기</button>
     {!isSupabaseConfigured && <small>Supabase 환경변수가 필요합니다.</small>}
+    {recoveryOpen && <PasswordRecoverySheet onClose={() => setRecoveryOpen(false)} />}
   </main>
+}
+
+function PasswordRecoverySheet({ onClose }: { onClose: () => void }) {
+  const [step, setStep] = useState<'identify' | 'answer' | 'done'>('identify')
+  const [username, setUsername] = useState('')
+  const [nickname, setNickname] = useState('')
+  const [question, setQuestion] = useState('')
+  const [answer, setAnswer] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const findQuestion = async () => {
+    setBusy(true); setError('')
+    const { data, error: lookupError } = await supabase.rpc('get_recovery_question', { target_username: username.trim().toLowerCase(), target_nickname: nickname.trim() })
+    setBusy(false)
+    if (lookupError || !data) return setError('입력한 계정 정보와 일치하는 복구 질문이 없어요.')
+    setQuestion(data as string); setStep('answer')
+  }
+  const resetPassword = async () => {
+    if (password.length < 8) return setError('새 비밀번호는 8자 이상 입력해 주세요.')
+    if (password !== confirm) return setError('새 비밀번호가 서로 일치하지 않아요.')
+    setBusy(true); setError('')
+    const { data, error: invokeError } = await supabase.functions.invoke('password-recovery', { body: { username: username.trim().toLowerCase(), nickname: nickname.trim(), answer: answer.trim(), newPassword: password } })
+    setBusy(false)
+    if (invokeError || !data?.success) return setError(data?.reason === 'locked' ? '시도 횟수를 초과했어요. 30분 뒤 다시 시도해 주세요.' : '복구 답변이 일치하지 않아요.')
+    setStep('done')
+  }
+  return <div className="sheet-backdrop"><section className="password-recovery-sheet"><div className="sheet-head"><div><p>본인 확인 후 새 비밀번호를 설정해요</p><h2>비밀번호 재설정</h2></div><button onClick={onClose}><X /></button></div>{step === 'identify' ? <div className="recovery-form"><label><span>아이디</span><input autoCapitalize="none" value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} /></label><label><span>별칭</span><input value={nickname} onChange={(e) => setNickname(e.target.value)} /></label><button className="primary-button" disabled={busy || !username || !nickname.trim()} onClick={() => void findQuestion()}>{busy ? <LoaderCircle className="spin" /> : <Search />} 복구 질문 확인</button></div> : step === 'answer' ? <div className="recovery-form"><div className="recovery-question"><span>가입할 때 선택한 질문</span><b>{question}</b></div><label><span>복구 답변</span><input autoFocus value={answer} onChange={(e) => setAnswer(e.target.value)} /></label><label><span>새 비밀번호</span><input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="8자 이상" /></label><label><span>새 비밀번호 확인</span><input type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></label><button className="primary-button" disabled={busy || answer.trim().length < 2 || !password || !confirm} onClick={() => void resetPassword()}>{busy ? <LoaderCircle className="spin" /> : <Check />} 새 비밀번호 저장</button></div> : <div className="recovery-complete"><Check /><h3>비밀번호를 변경했어요</h3><p>새 비밀번호로 로그인해 주세요.</p><button className="primary-button" onClick={onClose}>로그인으로 돌아가기</button></div>}{error && <p className="auth-error">{error}</p>}</section></div>
+}
+
+function ChangePasswordSheet({ required = false, onClose, onSave }: { required?: boolean; onClose?: () => void; onSave: (password: string) => Promise<void> }) {
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const save = async () => {
+    if (password.length < 8) return setError('비밀번호는 8자 이상 입력해 주세요.')
+    if (password !== confirm) return setError('비밀번호가 서로 일치하지 않아요.')
+    setBusy(true); setError('')
+    try { await onSave(password); onClose?.(); if (!required) void showAppAlert('새 비밀번호로 변경했어요.', '변경 완료') }
+    catch (nextError) { setError(nextError instanceof Error ? nextError.message : '비밀번호를 변경하지 못했습니다.') }
+    finally { setBusy(false) }
+  }
+  return <div className="sheet-backdrop forced-password-backdrop"><section className="password-recovery-sheet"><div className="sheet-head"><div><p>{required ? '관리자가 임시 비밀번호로 초기화했어요' : '주기적인 변경으로 계정을 안전하게'}</p><h2>{required ? '새 비밀번호를 설정해 주세요' : '비밀번호 변경'}</h2></div>{!required && <button onClick={onClose}><X /></button>}</div>{required && <p className="forced-password-guide">계속 사용하려면 본인만 아는 새 비밀번호로 변경해야 해요.</p>}<div className="recovery-form"><label><span>새 비밀번호</span><input autoFocus type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="8자 이상" /></label><label><span>새 비밀번호 확인</span><input type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></label><button className="primary-button" disabled={busy || !password || !confirm} onClick={() => void save()}>{busy ? <LoaderCircle className="spin" /> : <Check />} 변경하고 계속하기</button>{error && <p className="auth-error">{error}</p>}</div></section></div>
 }
 
 function HomeScreen({ data, profileId, demoMode, query, setQuery, goSearch, onAdd, onSelectItem, onMoveItem, onConsumeItem, onChanged }: { data: AppData; profileId: string; demoMode: boolean; query: string; setQuery: (v: string) => void; goSearch: () => void; onAdd: (spaceId?: string) => void; onSelectItem: (item: InventoryItem) => void; onMoveItem: (item: InventoryItem) => void; onConsumeItem: (item: InventoryItem) => void; onChanged: () => Promise<void> }) {
@@ -1318,11 +1385,12 @@ function SharedRecipeSheet({ shareId, items, onClose, onSaved }: { shareId: stri
   return <RecipeDetail recipe={recipe} items={items} saved={saved} authorName={shared.author_name} onToggleSave={() => void save()} onClose={onClose} />
 }
 
-function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, onSignOut, onGoMap, onGoRecipes, onOpenNotifications, onOpenBarcodeAdmin, onOpenUsageAdmin, onChanged }: { profile: Profile | null; kitchenName: string; kitchenId: string; demoMode: boolean; onExitDemo: () => void; onSignOut: () => Promise<void>; onGoMap: () => void; onGoRecipes: () => void; onOpenNotifications: () => void; onOpenBarcodeAdmin: () => void; onOpenUsageAdmin: () => void; onChanged: () => Promise<void> }) {
+function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, onSignOut, onChangePassword, onGoMap, onGoRecipes, onOpenNotifications, onOpenBarcodeAdmin, onOpenUsageAdmin, onChanged }: { profile: Profile | null; kitchenName: string; kitchenId: string; demoMode: boolean; onExitDemo: () => void; onSignOut: () => Promise<void>; onChangePassword: (password: string) => Promise<void>; onGoMap: () => void; onGoRecipes: () => void; onOpenNotifications: () => void; onOpenBarcodeAdmin: () => void; onOpenUsageAdmin: () => void; onChanged: () => Promise<void> }) {
   const nickname = profile?.nickname || '미리보기 사용자'
   const [editing, setEditing] = useState<'profile' | 'kitchen' | null>(null)
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
+  const [passwordOpen, setPasswordOpen] = useState(false)
   const openEdit = (target: 'profile' | 'kitchen') => { setEditing(target); setValue(target === 'profile' ? nickname : kitchenName) }
   const save = async () => {
     const clean = value.trim()
@@ -1340,9 +1408,10 @@ function ProfileScreen({ profile, kitchenName, kitchenId, demoMode, onExitDemo, 
     <div className="page-heading"><div><p>반가워요</p><h1>{nickname}</h1></div></div>
     <div className="profile-card"><CircleUserRound /><div><b>{nickname}</b><span>{demoMode ? '미리보기 모드' : profile?.username ? `@${profile.username} · 아이디 계정` : '로그인 계정'}</span></div>{!demoMode && <button onClick={() => openEdit('profile')}><PenLine /></button>}</div>
     <section className="profile-kitchen"><div><span>내 주방</span><b>{kitchenName}</b></div>{!demoMode && <button onClick={() => openEdit('kitchen')}><PenLine /> 이름 수정</button>}</section>
-    <div className="settings-list"><button onClick={onOpenNotifications}><Bell /><span><b>알림 내역</b><small>소비기한 알림을 확인합니다</small></span><ChevronRight /></button><button onClick={onGoMap}><Map /><span><b>내 주방 관리</b><small>보관공간 이름과 배치를 관리합니다</small></span><ChevronRight /></button><button onClick={onGoRecipes}><BookOpen /><span><b>내 레시피북</b><small>저장한 레시피를 보고 새로운 요리를 탐색합니다</small></span><ChevronRight /></button><button onClick={() => window.open('https://open.kakao.com/o/sGVSpyIi', '_blank', 'noopener,noreferrer')}><MessageCircle /><span><b>앱 문의하기</b><small>오류 제보와 기능 문의를 남겨주세요</small></span><ChevronRight /></button>{profile?.is_admin && !demoMode && <><button className="admin-setting" onClick={onOpenUsageAdmin}><BarChart3 /><span><b>가입자·접속 통계</b><small>가입과 서비스 이용 현황을 확인합니다</small></span><ChevronRight /></button><button className="admin-setting" onClick={onOpenBarcodeAdmin}><ShieldCheck /><span><b>공용 바코드 관리</b><small>사용자가 등록한 상품을 검토하고 승인합니다</small></span><ChevronRight /></button></>}</div>
+    <div className="settings-list"><button onClick={onOpenNotifications}><Bell /><span><b>알림 내역</b><small>소비기한 알림을 확인합니다</small></span><ChevronRight /></button><button onClick={onGoMap}><Map /><span><b>내 주방 관리</b><small>보관공간 이름과 배치를 관리합니다</small></span><ChevronRight /></button><button onClick={onGoRecipes}><BookOpen /><span><b>내 레시피북</b><small>저장한 레시피를 보고 새로운 요리를 탐색합니다</small></span><ChevronRight /></button>{!demoMode && <button onClick={() => setPasswordOpen(true)}><Settings2 /><span><b>비밀번호 변경</b><small>새로운 비밀번호로 변경합니다</small></span><ChevronRight /></button>}<button onClick={() => window.open('https://open.kakao.com/o/sGVSpyIi', '_blank', 'noopener,noreferrer')}><MessageCircle /><span><b>앱 문의하기</b><small>오류 제보와 기능 문의를 남겨주세요</small></span><ChevronRight /></button>{profile?.is_admin && !demoMode && <><button className="admin-setting" onClick={onOpenUsageAdmin}><BarChart3 /><span><b>가입자·접속 통계</b><small>가입과 서비스 이용 현황을 확인합니다</small></span><ChevronRight /></button><button className="admin-setting" onClick={onOpenBarcodeAdmin}><ShieldCheck /><span><b>공용 바코드 관리</b><small>사용자가 등록한 상품을 검토하고 승인합니다</small></span><ChevronRight /></button></>}</div>
     <button className="signout" onClick={demoMode ? onExitDemo : onSignOut}><LogOut /> {demoMode ? '로그인 화면으로' : '로그아웃'}</button>
     {editing && <div className="sheet-backdrop"><section className="simple-sheet"><div className="sheet-head"><div><p>{editing === 'profile' ? '마이페이지에 표시됩니다' : '홈 화면에 표시됩니다'}</p><h2>{editing === 'profile' ? '이름 수정' : '주방 이름 수정'}</h2></div><button onClick={() => setEditing(null)}><X /></button></div><label><span>{editing === 'profile' ? '표시 이름' : '주방 이름'}</span><input autoFocus maxLength={30} value={value} onChange={(event) => setValue(event.target.value)} /></label><button className="primary-button" disabled={busy || !value.trim()} onClick={() => void save()}>{busy ? <LoaderCircle className="spin" /> : <Check />} 저장하기</button></section></div>}
+    {passwordOpen && <ChangePasswordSheet onClose={() => setPasswordOpen(false)} onSave={onChangePassword} />}
   </>
 }
 
@@ -1350,6 +1419,8 @@ function AdminUsageSheet({ onClose }: { onClose: () => void }) {
   const [analytics, setAnalytics] = useState<AdminUsageAnalytics | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [resetUsername, setResetUsername] = useState('')
+  const [resetting, setResetting] = useState(false)
   const load = async () => {
     setLoading(true); setError('')
     try { setAnalytics(await loadAdminUsageAnalytics()) }
@@ -1360,9 +1431,21 @@ function AdminUsageSheet({ onClose }: { onClose: () => void }) {
   const maxDaily = Math.max(1, ...(analytics?.daily.map((item) => Math.max(item.activeUsers, item.signups)) || [1]))
   const maxHourly = Math.max(1, ...(analytics?.hourly.map((item) => item.visits) || [1]))
   const formatTime = (value: string | null) => value ? new Intl.DateTimeFormat('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value)) : '접속 기록 없음'
+  const resetPassword = async () => {
+    const username = resetUsername.trim().toLowerCase()
+    if (!username) return
+    const confirmed = await showAppConfirm(`${username} 계정의 임시 비밀번호를 아이디와 동일하게 초기화할까요? 다음 로그인 시 새 비밀번호 변경이 강제됩니다.`, { title: '비밀번호 초기화', confirmLabel: '초기화', cancelLabel: '취소', kind: 'danger' })
+    if (!confirmed) return
+    setResetting(true); setError('')
+    const { data, error: invokeError } = await supabase.functions.invoke('admin-reset-password', { body: { username } })
+    setResetting(false)
+    if (invokeError || !data?.success) return setError(data?.reason === 'not_found' ? '해당 아이디를 찾지 못했습니다.' : '비밀번호를 초기화하지 못했습니다.')
+    setResetUsername(''); void showAppAlert(`임시 비밀번호는 ${username}입니다.`, '초기화 완료')
+  }
   return <div className="sheet-backdrop admin-usage-backdrop"><section className="admin-usage-sheet"><div className="sheet-head"><div><p>관리자 전용 · 개인 주방 내용은 수집하지 않아요</p><h2>가입자·접속 통계</h2></div><button onClick={onClose}><X /></button></div>
     {loading ? <div className="admin-loading"><LoaderCircle className="spin" /> 통계 집계 중</div> : error ? <div className="admin-usage-error"><Activity /><p>{error}</p><button onClick={() => void load()}>다시 불러오기</button></div> : analytics && <>
       <div className="admin-metric-grid"><article><span>전체 가입자</span><b>{analytics.totalUsers.toLocaleString()}명</b><small>오늘 +{analytics.newUsersToday}</small></article><article><span>오늘 활성 사용자</span><b>{analytics.activeToday.toLocaleString()}명</b><small>오늘 접속 {analytics.visitsToday}회</small></article><article><span>최근 7일 가입</span><b>+{analytics.newUsers7d.toLocaleString()}명</b><small>신규 사용자</small></article><article><span>최근 7일 활성</span><b>{analytics.active7d.toLocaleString()}명</b><small>중복 사용자 제외</small></article></div>
+      <section className="admin-password-reset"><div><ShieldCheck /><span><b>사용자 비밀번호 초기화</b><small>아이디를 검색해 임시 비밀번호를 발급합니다.</small></span></div><div><input autoCapitalize="none" value={resetUsername} onChange={(e) => setResetUsername(e.target.value.toLowerCase())} placeholder="사용자 아이디" /><button disabled={resetting || !resetUsername.trim()} onClick={() => void resetPassword()}>{resetting ? <LoaderCircle className="spin" /> : '초기화'}</button></div></section>
       <section className="admin-chart-card"><div><h3>최근 14일 흐름</h3><span><i className="active" /> 활성 사용자 <i className="signup" /> 가입</span></div><div className="admin-daily-chart">{analytics.daily.map((item, index) => <div key={item.date}><span className="bars"><i className="active" style={{ height: `${Math.max(3, item.activeUsers / maxDaily * 100)}%` }} title={`활성 ${item.activeUsers}명`} /><i className="signup" style={{ height: `${Math.max(3, item.signups / maxDaily * 100)}%` }} title={`가입 ${item.signups}명`} /></span><small>{index % 2 === 0 ? new Date(`${item.date}T00:00:00`).getDate() : ''}</small></div>)}</div></section>
       <section className="admin-chart-card"><div><h3>접속 시간대</h3><span>최근 30일 · 한국 시간</span></div><div className="admin-hourly-chart">{analytics.hourly.map((item) => <div key={item.hour}><i style={{ height: `${Math.max(2, item.visits / maxHourly * 100)}%` }} title={`${item.hour}시 ${item.visits}회`} />{item.hour % 3 === 0 && <small>{item.hour}시</small>}</div>)}</div></section>
       <section className="admin-recent-users"><div><h3>최근 가입자</h3><span>최대 30명</span></div>{analytics.recentUsers.map((user) => <article key={user.id}><CircleUserRound /><span><b>{user.nickname || user.username || '이름 없음'}</b><small>{user.username ? `@${user.username} · ` : ''}가입 {formatTime(user.created_at)}</small></span><em>{formatTime(user.last_seen_at)}</em></article>)}</section>

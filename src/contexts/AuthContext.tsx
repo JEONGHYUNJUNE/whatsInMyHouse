@@ -9,7 +9,9 @@ type AuthValue = {
   loading: boolean
   signInWithGoogle: () => Promise<void>
   signInWithCredentials: (username: string, password: string) => Promise<void>
-  signUpWithCredentials: (username: string, password: string, nickname: string) => Promise<void>
+  signUpWithCredentials: (username: string, password: string, nickname: string, recoveryQuestion: string, recoveryAnswer: string) => Promise<void>
+  checkSignupIdentifiers: (username: string, nickname: string) => Promise<{ usernameAvailable: boolean; nicknameAvailable: boolean }>
+  changePassword: (password: string) => Promise<void>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
 }
@@ -71,7 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const signUpWithCredentials = async (username: string, password: string, nickname: string) => {
+  const signUpWithCredentials = async (username: string, password: string, nickname: string, recoveryQuestion: string, recoveryAnswer: string) => {
     const normalized = username.trim().toLowerCase()
     const cleanNickname = nickname.trim()
     if (!usernamePattern.test(normalized)) {
@@ -79,6 +81,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     if (password.length < 8) throw new Error('비밀번호는 8자 이상 입력해 주세요.')
     if (!cleanNickname || cleanNickname.length > 30) throw new Error('별칭은 1~30자로 입력해 주세요.')
+    if (!recoveryQuestion || recoveryAnswer.trim().length < 2) throw new Error('복구 질문과 답변을 입력해 주세요.')
+
+    const availability = await checkSignupIdentifiers(normalized, cleanNickname)
+    if (!availability.usernameAvailable) throw new Error('이미 사용 중인 아이디입니다.')
+    if (!availability.nicknameAvailable) throw new Error('이미 사용 중인 별칭입니다.')
 
     const { data, error } = await supabase.auth.signUp({
       email: toAuthEmail(normalized),
@@ -88,6 +95,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) {
       const message = error.message.toLowerCase()
       if (message.includes('already registered')) throw new Error('이미 사용 중인 아이디입니다.')
+      if (message.includes('profiles_nickname_normalized_unique') || message.includes('duplicate key')) throw new Error('이미 사용 중인 아이디 또는 별칭입니다.')
       if (message.includes('email address') && message.includes('invalid')) {
         throw new Error('아이디 가입 설정이 완료되지 않았습니다. 관리자에게 Supabase 이메일 Hook 설정을 요청해 주세요.')
       }
@@ -96,10 +104,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!data.session) {
       throw new Error('가입은 생성됐지만 로그인되지 않았습니다. Supabase에서 이메일 확인 옵션을 꺼주세요.')
     }
+    const { error: recoveryError } = await supabase.rpc('set_my_recovery_method', { target_question: recoveryQuestion, target_answer: recoveryAnswer.trim() })
+    if (recoveryError) throw new Error('가입은 완료됐지만 비밀번호 복구 설정을 저장하지 못했습니다. 마이페이지에서 다시 설정해 주세요.')
+  }
+
+  const checkSignupIdentifiers = async (username: string, nickname: string) => {
+    const { data, error } = await supabase.rpc('check_signup_identifiers', { target_username: username.trim().toLowerCase(), target_nickname: nickname.trim() })
+    if (error) throw error
+    return data as { usernameAvailable: boolean; nicknameAvailable: boolean }
   }
 
   const signOut = async () => {
     await supabase.auth.signOut()
+  }
+
+  const changePassword = async (password: string) => {
+    if (password.length < 8) throw new Error('비밀번호는 8자 이상 입력해 주세요.')
+    const { error } = await supabase.auth.updateUser({ password, data: { must_change_password: false } })
+    if (error) throw error
+    const { data } = await supabase.auth.getSession()
+    await loadProfile(data.session)
   }
 
   const refreshProfile = async () => {
@@ -107,7 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await loadProfile(data.session)
   }
 
-  return <AuthContext.Provider value={{ session, profile, loading, signInWithGoogle, signInWithCredentials, signUpWithCredentials, signOut, refreshProfile }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ session, profile, loading, signInWithGoogle, signInWithCredentials, signUpWithCredentials, checkSignupIdentifiers, changePassword, signOut, refreshProfile }}>{children}</AuthContext.Provider>
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
