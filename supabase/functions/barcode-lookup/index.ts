@@ -39,10 +39,36 @@ async function fetchOpenFoodFactsImage(barcode: string) {
   return product?.image_front_small_url || product?.image_front_url || product?.image_url || ''
 }
 
+function plainText(value: unknown) {
+  return String(value || '').replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/\s+/g, ' ').trim()
+}
+
+async function fetchNaverWebCandidates(barcode: string) {
+  const clientId = Deno.env.get('NAVER_API_HUB_CLIENT_ID')
+  const clientSecret = Deno.env.get('NAVER_API_HUB_CLIENT_SECRET')
+  if (!clientId || !clientSecret) return []
+  const url = new URL('https://naverapihub.apigw.ntruss.com/search/v1/webkr')
+  url.searchParams.set('query', `"${barcode}"`)
+  url.searchParams.set('display', '10')
+  url.searchParams.set('start', '1')
+  url.searchParams.set('format', 'json')
+  const response = await fetch(url, { headers: { 'X-NCP-APIGW-API-KEY-ID': clientId, 'X-NCP-APIGW-API-KEY': clientSecret }, signal: AbortSignal.timeout(5000) })
+  if (!response.ok) return []
+  const json = await response.json()
+  return (Array.isArray(json?.items) ? json.items : [])
+    .map((item: Record<string, unknown>) => ({ name: plainText(item.title).replaceAll(barcode, '').replace(/^\s*[-|:·]\s*|\s*[-|:·]\s*$/g, '').trim(), description: plainText(item.description), url: String(item.link || '') }))
+    // NAVER uses the barcode as the search query but usually does not repeat the
+    // numeric code in the returned title/description. These are suggestions only:
+    // the app always asks the user to confirm a candidate before filling the name.
+    .filter((item: { name: string; url: string }) => item.name.length >= 2 && item.url.startsWith('http'))
+    .filter((item: { name: string }, index: number, items: { name: string }[]) => items.findIndex((candidate) => candidate.name === item.name) === index)
+    .slice(0, 3)
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   try {
-    const { barcode } = await request.json()
+    const { barcode, webFallback = false } = await request.json()
     if (!/^\d{8,14}$/.test(String(barcode || ''))) return Response.json({ found: false, reason: 'invalid_barcode' }, { status: 400, headers: corsHeaders })
 
     const apiKey = Deno.env.get('FOOD_SAFETY_KOREA_API_KEY')
@@ -55,7 +81,10 @@ Deno.serve(async (request) => {
     const distributionProduct = distributionRows.find((row) => String(row.BRCD_NO || '').replace(/\D/g, '') === barcode)
     const linkedProduct = linkedRows.find((row) => String(row.BAR_CD || '').replace(/\D/g, '') === barcode)
     const barcodeProduct = distributionProduct || linkedProduct
-    if (!barcodeProduct) return Response.json({ found: false }, { headers: corsHeaders })
+    if (!barcodeProduct) {
+      const candidates = webFallback ? await fetchNaverWebCandidates(String(barcode)).catch(() => []) : []
+      return Response.json({ found: false, candidates, source: candidates.length ? 'naver_web_search' : undefined }, { headers: corsHeaders })
+    }
 
     const reportNo = barcodeProduct.PRDLST_REPORT_NO || ''
     const productRows = reportNo ? await fetchFoodSafety('C002', apiKey, `PRDLST_REPORT_NO=${encodeURIComponent(reportNo)}`) : []

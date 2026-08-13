@@ -453,7 +453,10 @@ export async function lookupBarcode(barcode: string, profileId?: string, kitchen
     .then((response) => response.ok ? response.json() : null).catch(() => null)
   const offProduct = openFoodFacts?.product || null
   const name = hasDomesticProduct ? foodSafety.name : offProduct?.product_name_ko || offProduct?.product_name || ''
-  if (!name) return null
+  if (!name) {
+    const { data: webFallback } = await supabase.functions.invoke('barcode-lookup', { body: { barcode, webFallback: true } }).catch(() => ({ data: null }))
+    return webFallback?.candidates?.length ? { candidates: webFallback.candidates as { name: string; description: string; url: string }[], source: 'naver_web_search' as const } : null
+  }
   const offCategory = String(offProduct?.categories_tags?.[0] || '').replace(/^[a-z]{2}:/, '').replaceAll('-', ' ')
   const source = hasDomesticProduct ? 'foodsafety_korea' as const : 'open_food_facts' as const
   const brand = hasDomesticProduct ? foodSafety.brand || '' : offProduct?.brands || ''
