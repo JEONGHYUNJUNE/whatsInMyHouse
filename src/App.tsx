@@ -252,20 +252,64 @@ const onboardingSlides = [
   { eyebrow: '하나씩도, 한 번에도', title: '식재료 등록을\n더 빠르고 간편하게', description: '바코드 스캔과 직접 입력은 물론, 영수증으로 여러 상품을 한꺼번에 등록할 수 있어요.', kind: 'add' },
   { eyebrow: '먹은 만큼 정확하게', title: '기한과 재고를\n놓치지 않게 관리해요', description: '어디에 무엇이 있는지 확인하고, 식사에 사용한 여러 식재료의 수량을 한 번에 줄여요.', kind: 'consume' },
   { eyebrow: '있는 재료를 알차게', title: '오늘의 요리부터\n다음 장보기까지', description: '보유 재료 기반 레시피를 추천받고, 내 레시피북과 장보기 체크리스트까지 이어서 관리하세요.', kind: 'recipe' },
+  { eyebrow: '마지막으로 딱 한 번만', title: '홈 화면에 추가하고\n앱처럼 바로 열어요', description: '주소창 없이 더 편하게 쓰고, 필요할 때 홈 화면에서 바로 시작하세요.', kind: 'install' },
 ] as const
 
 function OnboardingVisual({ kind }: { kind: typeof onboardingSlides[number]['kind'] }) {
   if (kind === 'map') return <div className="onboarding-map"><span><CabinetIcon /><b>상 수납장</b><small>4개 보관 중</small></span><span><CabinetIcon /><b>중간 수납장</b><small>2개 보관 중</small></span><span className="cold"><Refrigerator /><b>냉장고</b><small>7개 보관 중</small></span><span><Box /><b>싱크대 위</b><small>2개 보관 중</small></span><span className="cold"><Snowflake /><b>냉동실</b><small>3개 보관 중</small></span></div>
   if (kind === 'add') return <div className="onboarding-add"><div className="onboarding-add-tabs"><span className="active"><ScanLine /> 바코드</span><span><PenLine /> 직접 입력</span><span><ReceiptText /> 영수증</span></div><div className="onboarding-scan"><div><i /><i /><i /><i /></div><small>카메라로 상품 바코드를 비춰 주세요.</small></div><div className="onboarding-product"><span>🍚</span><div><b>햇반</b><small>곡류/면 · 3개</small></div><Check /></div></div>
   if (kind === 'consume') return <div className="onboarding-consume"><div className="onboarding-consume-head"><UtensilsCrossed /><span><b>무엇을 사용했나요?</b><small>사용한 만큼 수량을 조절하세요.</small></span></div>{[['🥩','성수동 순살 족발','1개'],['🍚','햇반','2개'],['🥟','한입떡갈비','1개']].map(([icon,name,count]) => <div className="onboarding-consume-row" key={name}><span>{icon}</span><div><b>{name}</b><small>냉장고에 있어요</small></div><i>−</i><strong>{count}</strong><i>＋</i></div>)}</div>
-  return <div className="onboarding-recipe"><div className="onboarding-recipe-card"><span>🍲</span><div><small>집에 있는 재료로 추천</small><b>참치마요 덮밥</b><p><Check /> 보유 재료 2개</p></div><ChevronRight /></div><div className="onboarding-checklist"><ShoppingBasket /><div><b>장보기 체크리스트</b><small>필요한 재료를 잊지 않게</small></div><span>3</span></div><div className="onboarding-books"><BookOpen /><b>내 레시피북</b><span>저장한 요리 8개</span></div></div>
+  if (kind === 'recipe') return <div className="onboarding-recipe"><div className="onboarding-recipe-card"><span>🍲</span><div><small>집에 있는 재료로 추천</small><b>참치마요 덮밥</b><p><Check /> 보유 재료 2개</p></div><ChevronRight /></div><div className="onboarding-checklist"><ShoppingBasket /><div><b>장보기 체크리스트</b><small>필요한 재료를 잊지 않게</small></div><span>3</span></div><div className="onboarding-books"><BookOpen /><b>내 레시피북</b><span>저장한 요리 8개</span></div></div>
+  return <InstallGuideVisual />
+}
+
+type InstallPromptEvent = Event & {
+  prompt: () => Promise<void>
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
+}
+
+function isAppDisplayMode() {
+  return window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone)
+}
+
+function InstallGuideVisual() {
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  const isSafari = isIOS && /Safari/.test(navigator.userAgent) && !/CriOS|FxiOS|EdgiOS|KAKAOTALK|NAVER/.test(navigator.userAgent)
+  return <div className="onboarding-install-card">
+    <div className="install-app-preview"><img src="/app-icon-192.png" alt="집에뭐있지 앱 아이콘" /><span><b>집에뭐있지</b><small>홈 화면에서 한 번에 시작</small></span><Check /></div>
+    {isIOS ? <>
+      {!isSafari && <div className="install-browser-notice"><b>먼저 Safari에서 열어주세요</b><span>현재 브라우저의 메뉴에서 ‘Safari로 열기’를 선택하면 설치할 수 있어요.</span></div>}
+      <ol className="install-steps">
+        <li className="active"><i><Share2 /></i><span><b>하단의 공유 버튼 누르기</b><small>화면 아래의 <Share2 /> 모양을 찾아보세요.</small></span></li>
+        <li><i>2</i><span><b>‘홈 화면에 추가’ 선택</b><small>공유 목록을 조금 아래로 내려주세요.</small></span></li>
+        <li><i>3</i><span><b>오른쪽 위 ‘추가’ 누르기</b><small>이제 일반 앱처럼 홈 화면에 생겨요.</small></span></li>
+      </ol>
+      {isSafari && <div className="install-share-hint"><span>여기를 눌러 시작</span><Share2 /></div>}
+    </> : <div className="install-browser-notice supported"><b>설치 버튼을 누르면 바로 추가할 수 있어요</b><span>브라우저의 설치 확인창에서 한 번만 승인해 주세요.</span></div>}
+  </div>
 }
 
 function AppOnboarding({ onComplete }: { onComplete: () => void }) {
   const [page, setPage] = useState(0)
   const [direction, setDirection] = useState<'next' | 'prev'>('next')
   const touchStartX = useRef<number | null>(null)
+  const installPrompt = useRef<InstallPromptEvent | null>(null)
+  const [installed, setInstalled] = useState(isAppDisplayMode)
   const slide = onboardingSlides[page]
+  const installPage = slide.kind === 'install'
+  useEffect(() => {
+    const capturePrompt = (event: Event) => {
+      event.preventDefault()
+      installPrompt.current = event as InstallPromptEvent
+    }
+    const markInstalled = () => setInstalled(true)
+    window.addEventListener('beforeinstallprompt', capturePrompt)
+    window.addEventListener('appinstalled', markInstalled)
+    return () => {
+      window.removeEventListener('beforeinstallprompt', capturePrompt)
+      window.removeEventListener('appinstalled', markInstalled)
+    }
+  }, [])
   const goTo = (nextPage: number) => {
     const bounded = Math.max(0, Math.min(onboardingSlides.length - 1, nextPage))
     if (bounded === page) return
@@ -279,7 +323,18 @@ function AppOnboarding({ onComplete }: { onComplete: () => void }) {
     if (Math.abs(distance) < 48) return
     goTo(distance < 0 ? page + 1 : page - 1)
   }
-  return <div className="app-onboarding" data-prevent-app-reload="true"><header><b><span>집</span>에뭐있지</b><button onClick={onComplete}>건너뛰기</button></header><main className="onboarding-swipe-area" onTouchStart={(event) => { touchStartX.current = event.touches[0]?.clientX ?? null }} onTouchCancel={() => { touchStartX.current = null }} onTouchEnd={(event) => finishSwipe(event.changedTouches[0]?.clientX ?? 0)}><div className={`onboarding-slide slide-${direction}`} key={page}><div className="onboarding-copy"><span>{slide.eyebrow}</span><h1>{slide.title.split('\n').map((line, index) => <span key={line}>{line}{index === 0 && <br />}</span>)}</h1><p>{slide.description}</p></div><OnboardingVisual kind={slide.kind} /></div></main><footer><div className="onboarding-dots">{onboardingSlides.map((_, index) => <button aria-label={`${index + 1}페이지`} className={index === page ? 'active' : ''} onClick={() => goTo(index)} key={index} />)}</div><button className="onboarding-next" onClick={() => page === onboardingSlides.length - 1 ? onComplete() : goTo(page + 1)}>{page === onboardingSlides.length - 1 ? '집에뭐있지 시작하기' : '다음'} <ChevronRight /></button></footer></div>
+  const startInstall = async () => {
+    if (installed || isAppDisplayMode()) return onComplete()
+    if (installPrompt.current) {
+      await installPrompt.current.prompt()
+      const result = await installPrompt.current.userChoice
+      if (result.outcome === 'accepted') onComplete()
+      installPrompt.current = null
+      return
+    }
+    if (/iPad|iPhone|iPod/.test(navigator.userAgent)) void showAppAlert('Safari 아래쪽의 공유 버튼을 누른 다음, ‘홈 화면에 추가’를 선택해 주세요.')
+  }
+  return <div className={`app-onboarding${installPage ? ' install-page' : ''}`} data-prevent-app-reload="true"><header><b><span>집</span>에뭐있지</b><button onClick={onComplete}>건너뛰기</button></header><main className="onboarding-swipe-area" onTouchStart={(event) => { touchStartX.current = event.touches[0]?.clientX ?? null }} onTouchCancel={() => { touchStartX.current = null }} onTouchEnd={(event) => finishSwipe(event.changedTouches[0]?.clientX ?? 0)}><div className={`onboarding-slide slide-${direction}`} key={page}><div className="onboarding-copy"><span>{slide.eyebrow}</span><h1>{slide.title.split('\n').map((line, index) => <span key={line}>{line}{index === 0 && <br />}</span>)}</h1><p>{slide.description}</p></div><OnboardingVisual kind={slide.kind} /></div></main><footer className={installPage ? 'install-footer' : ''}><div className="onboarding-dots">{onboardingSlides.map((_, index) => <button aria-label={`${index + 1}페이지`} className={index === page ? 'active' : ''} onClick={() => goTo(index)} key={index} />)}</div>{installPage ? <div className="install-actions"><button className="onboarding-next" onClick={startInstall}>{installed ? '집에뭐있지 시작하기' : /iPad|iPhone|iPod/.test(navigator.userAgent) ? '설치 순서 확인하기' : '홈 화면에 설치하기'} <Home /></button><button className="install-later" onClick={onComplete}>지금은 로그인부터 할게요</button></div> : <button className="onboarding-next" onClick={() => goTo(page + 1)}>다음 <ChevronRight /></button>}</footer></div>
 }
 
 function KitchenSetup({ kitchenId, mapId, onCreated }: { kitchenId: string; mapId: string; onCreated: () => Promise<void> }) {
@@ -1430,7 +1485,7 @@ function AdminUsageSheet({ onClose }: { onClose: () => void }) {
   useEffect(() => { void load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const maxDaily = Math.max(1, ...(analytics?.daily.map((item) => Math.max(item.activeUsers, item.signups)) || [1]))
   const maxHourly = Math.max(1, ...(analytics?.hourly.map((item) => item.visits) || [1]))
-  const formatTime = (value: string | null) => value ? new Intl.DateTimeFormat('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value)) : '접속 기록 없음'
+  const formatTime = (value: string | null) => value ? new Intl.DateTimeFormat('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(value)) : '접속 기록 없음'
   const resetPassword = async () => {
     const username = resetUsername.trim().toLowerCase()
     if (!username) return
