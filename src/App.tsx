@@ -1475,6 +1475,8 @@ function AdminUsageSheet({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [resetUsername, setResetUsername] = useState('')
+  const [resetTarget, setResetTarget] = useState<{ username: string; nickname: string; createdAt: string } | null>(null)
+  const [searchingUser, setSearchingUser] = useState(false)
   const [resetting, setResetting] = useState(false)
   const load = async () => {
     setLoading(true); setError('')
@@ -1487,20 +1489,29 @@ function AdminUsageSheet({ onClose }: { onClose: () => void }) {
   const maxHourly = Math.max(1, ...(analytics?.hourly.map((item) => item.visits) || [1]))
   const formatTime = (value: string | null) => value ? new Intl.DateTimeFormat('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(value)) : '접속 기록 없음'
   const resetPassword = async () => {
-    const username = resetUsername.trim().toLowerCase()
+    const username = resetTarget?.username
     if (!username) return
     const confirmed = await showAppConfirm(`${username} 계정의 임시 비밀번호를 아이디와 동일하게 초기화할까요? 다음 로그인 시 새 비밀번호 변경이 강제됩니다.`, { title: '비밀번호 초기화', confirmLabel: '초기화', cancelLabel: '취소', kind: 'danger' })
     if (!confirmed) return
     setResetting(true); setError('')
-    const { data, error: invokeError } = await supabase.functions.invoke('admin-reset-password', { body: { username } })
+    const { data, error: invokeError } = await supabase.functions.invoke('admin-reset-password', { body: { username, action: 'reset' } })
     setResetting(false)
     if (invokeError || !data?.success) return setError(data?.reason === 'not_found' ? '해당 아이디를 찾지 못했습니다.' : '비밀번호를 초기화하지 못했습니다.')
-    setResetUsername(''); void showAppAlert(`임시 비밀번호는 ${username}입니다.`, '초기화 완료')
+    setResetUsername(''); setResetTarget(null); void showAppAlert(`임시 비밀번호는 ${username}입니다.`, '초기화 완료')
+  }
+  const searchResetUser = async () => {
+    const username = resetUsername.trim().toLowerCase()
+    if (!username) return
+    setSearchingUser(true); setError(''); setResetTarget(null)
+    const { data, error: invokeError } = await supabase.functions.invoke('admin-reset-password', { body: { username, action: 'search' } })
+    setSearchingUser(false)
+    if (invokeError || !data?.success || !data.user) return setError(data?.reason === 'not_found' ? '해당 아이디를 찾지 못했습니다.' : '사용자를 검색하지 못했습니다.')
+    setResetTarget(data.user)
   }
   return <div className="sheet-backdrop admin-usage-backdrop"><section className="admin-usage-sheet"><div className="sheet-head"><div><p>관리자 전용 · 개인 주방 내용은 수집하지 않아요</p><h2>가입자·접속 통계</h2></div><button onClick={onClose}><X /></button></div>
     {loading ? <div className="admin-loading"><LoaderCircle className="spin" /> 통계 집계 중</div> : error ? <div className="admin-usage-error"><Activity /><p>{error}</p><button onClick={() => void load()}>다시 불러오기</button></div> : analytics && <>
       <div className="admin-metric-grid"><article><span>전체 가입자</span><b>{analytics.totalUsers.toLocaleString()}명</b><small>오늘 +{analytics.newUsersToday}</small></article><article><span>오늘 활성 사용자</span><b>{analytics.activeToday.toLocaleString()}명</b><small>오늘 접속 {analytics.visitsToday}회</small></article><article><span>최근 7일 가입</span><b>+{analytics.newUsers7d.toLocaleString()}명</b><small>신규 사용자</small></article><article><span>최근 7일 활성</span><b>{analytics.active7d.toLocaleString()}명</b><small>중복 사용자 제외</small></article></div>
-      <section className="admin-password-reset"><div><ShieldCheck /><span><b>사용자 비밀번호 초기화</b><small>아이디를 검색해 임시 비밀번호를 발급합니다.</small></span></div><div><input autoCapitalize="none" value={resetUsername} onChange={(e) => setResetUsername(e.target.value.toLowerCase())} placeholder="사용자 아이디" /><button disabled={resetting || !resetUsername.trim()} onClick={() => void resetPassword()}>{resetting ? <LoaderCircle className="spin" /> : '초기화'}</button></div></section>
+      <section className="admin-password-reset"><div><ShieldCheck /><span><b>사용자 비밀번호 초기화</b><small>아이디를 검색하고 계정을 확인한 뒤 초기화합니다.</small></span></div><div><input autoCapitalize="none" value={resetUsername} onChange={(e) => { setResetUsername(e.target.value.toLowerCase()); setResetTarget(null) }} onKeyDown={(e) => { if (e.key === 'Enter') void searchResetUser() }} placeholder="사용자 아이디" /><button disabled={searchingUser || !resetUsername.trim()} onClick={() => void searchResetUser()}>{searchingUser ? <LoaderCircle className="spin" /> : '검색'}</button></div>{resetTarget && <div className="admin-reset-target"><CircleUserRound /><span><b>{resetTarget.nickname || '이름 없음'}</b><small>@{resetTarget.username} · 가입 {formatTime(resetTarget.createdAt)}</small></span><button disabled={resetting} onClick={() => void resetPassword()}>{resetting ? <LoaderCircle className="spin" /> : '초기화'}</button></div>}</section>
       <section className="admin-chart-card"><div><h3>최근 14일 흐름</h3><span><i className="active" /> 활성 사용자 <i className="signup" /> 가입</span></div><div className="admin-daily-chart">{analytics.daily.map((item, index) => <div key={item.date}><span className="bars"><i className="active" style={{ height: `${Math.max(3, item.activeUsers / maxDaily * 100)}%` }} title={`활성 ${item.activeUsers}명`} /><i className="signup" style={{ height: `${Math.max(3, item.signups / maxDaily * 100)}%` }} title={`가입 ${item.signups}명`} /></span><small>{index % 2 === 0 ? new Date(`${item.date}T00:00:00`).getDate() : ''}</small></div>)}</div></section>
       <section className="admin-chart-card"><div><h3>접속 시간대</h3><span>최근 30일 · 한국 시간</span></div><div className="admin-hourly-chart">{analytics.hourly.map((item) => <div key={item.hour}><i style={{ height: `${Math.max(2, item.visits / maxHourly * 100)}%` }} title={`${item.hour}시 ${item.visits}회`} />{item.hour % 3 === 0 && <small>{item.hour}시</small>}</div>)}</div></section>
       <section className="admin-recent-users"><div><h3>최근 가입자</h3><span>최대 30명</span></div>{analytics.recentUsers.map((user) => <article key={user.id}><CircleUserRound /><span><b>{user.nickname || user.username || '이름 없음'}</b><small>{user.username ? `@${user.username} · ` : ''}가입 {formatTime(user.created_at)}</small></span><em>{formatTime(user.last_seen_at)}</em></article>)}</section>
