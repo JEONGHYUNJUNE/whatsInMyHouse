@@ -144,6 +144,7 @@ function App() {
   const [movingItem, setMovingItem] = useState<InventoryItem | null>(null)
   const [consumingItem, setConsumingItem] = useState<InventoryItem | null>(null)
   const [onboardingOpen, setOnboardingOpen] = useState(() => localStorage.getItem('app-onboarding-complete') !== 'true')
+  const [installGuideOnly, setInstallGuideOnly] = useState(false)
   const [sharedRecipeId, setSharedRecipeId] = useState<string | null>(() => window.location.pathname.match(/^\/recipe\/shared\/([0-9a-f-]{36})\/?$/i)?.[1] || null)
 
   useEffect(() => {
@@ -187,6 +188,7 @@ function App() {
   const completeOnboarding = () => {
     localStorage.setItem('app-onboarding-complete', 'true')
     setOnboardingOpen(false)
+    setInstallGuideOnly(false)
   }
 
   const openNotificationTarget = (notification: AppNotification) => {
@@ -205,8 +207,8 @@ function App() {
   }
 
   if (loading) return <FullLoader />
-  if (onboardingOpen && !sharedRecipeId) return <AppOnboarding onComplete={completeOnboarding} />
-  if (!session && !demoMode) return <LoginPage onSignIn={signInWithCredentials} onSignUp={signUpWithCredentials} onCheckIdentifiers={checkSignupIdentifiers} onDemo={() => setDemoMode(true)} onOpenOnboarding={() => setOnboardingOpen(true)} />
+  if (onboardingOpen && !sharedRecipeId) return <AppOnboarding onComplete={completeOnboarding} installOnly={installGuideOnly} />
+  if (!session && !demoMode) return <LoginPage onSignIn={signInWithCredentials} onSignUp={signUpWithCredentials} onCheckIdentifiers={checkSignupIdentifiers} onDemo={() => setDemoMode(true)} onOpenOnboarding={() => { setInstallGuideOnly(false); setOnboardingOpen(true) }} onOpenInstallGuide={() => { setInstallGuideOnly(true); setOnboardingOpen(true) }} />
 
   return (
     <div className="app-shell">
@@ -289,13 +291,13 @@ function InstallGuideVisual() {
   </div>
 }
 
-function AppOnboarding({ onComplete }: { onComplete: () => void }) {
+function AppOnboarding({ onComplete, installOnly = false }: { onComplete: () => void; installOnly?: boolean }) {
   const [page, setPage] = useState(0)
   const [direction, setDirection] = useState<'next' | 'prev'>('next')
   const touchStartX = useRef<number | null>(null)
   const installPrompt = useRef<InstallPromptEvent | null>(null)
   const [installed, setInstalled] = useState(isAppDisplayMode)
-  const slides = useMemo(() => installed ? onboardingSlides.filter((item) => item.kind !== 'install') : [...onboardingSlides], [installed])
+  const slides = useMemo(() => installOnly ? onboardingSlides.filter((item) => item.kind === 'install') : installed ? onboardingSlides.filter((item) => item.kind !== 'install') : [...onboardingSlides], [installed, installOnly])
   const slide = slides[Math.min(page, slides.length - 1)]
   const installPage = slide.kind === 'install'
   const lastPage = page === slides.length - 1
@@ -391,7 +393,7 @@ function DataLoadError({ onRetry }: { onRetry: () => Promise<void> }) {
   return <section className="data-error"><Box /><h2>주방을 불러오지 못했어요</h2><p>데모 데이터는 표시하지 않았습니다.<br />연결 상태를 확인하고 다시 시도해 주세요.</p><button onClick={() => void onRetry()}>다시 시도</button></section>
 }
 
-function LoginPage({ onSignIn, onSignUp, onCheckIdentifiers, onDemo, onOpenOnboarding }: { onSignIn: (username: string, password: string) => Promise<void>; onSignUp: (username: string, password: string, nickname: string, recoveryQuestion: string, recoveryAnswer: string) => Promise<void>; onCheckIdentifiers: (username: string, nickname: string) => Promise<{ usernameAvailable: boolean; nicknameAvailable: boolean }>; onDemo: () => void; onOpenOnboarding: () => void }) {
+function LoginPage({ onSignIn, onSignUp, onCheckIdentifiers, onDemo, onOpenOnboarding, onOpenInstallGuide }: { onSignIn: (username: string, password: string) => Promise<void>; onSignUp: (username: string, password: string, nickname: string, recoveryQuestion: string, recoveryAnswer: string) => Promise<void>; onCheckIdentifiers: (username: string, nickname: string) => Promise<{ usernameAvailable: boolean; nicknameAvailable: boolean }>; onDemo: () => void; onOpenOnboarding: () => void; onOpenInstallGuide: () => void }) {
   const [busy, setBusy] = useState(false)
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [username, setUsername] = useState('')
@@ -438,6 +440,7 @@ function LoginPage({ onSignIn, onSignUp, onCheckIdentifiers, onDemo, onOpenOnboa
       <button className="google-button" type="submit" disabled={busy || checkingIdentifiers || !isSupabaseConfigured || (mode === 'signup' && (!passwordConfirm || passwordsMismatch || recoveryAnswer.trim().length < 2 || availability?.usernameAvailable === false || availability?.nicknameAvailable === false))}>{busy || checkingIdentifiers ? <LoaderCircle className="spin" /> : mode === 'login' ? '로그인' : '가입하고 시작하기'}</button>
     </form>
     {mode === 'login' && <button className="password-recovery-button" onClick={() => setRecoveryOpen(true)}>비밀번호를 잊으셨나요?</button>}
+    {!isAppDisplayMode() && <button className="login-install-button" onClick={onOpenInstallGuide}><Home /> 앱처럼 사용하기</button>}
     <button className="demo-button" onClick={onDemo}>로그인 없이 둘러보기</button>
     <button className="intro-button" onClick={onOpenOnboarding}><Sparkles /> 앱 소개 다시 보기</button>
     {!isSupabaseConfigured && <small>Supabase 환경변수가 필요합니다.</small>}
