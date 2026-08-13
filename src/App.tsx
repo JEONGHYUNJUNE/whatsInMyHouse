@@ -280,11 +280,11 @@ function InstallGuideVisual() {
     {isIOS ? <>
       {!isSafari && <div className="install-browser-notice"><b>먼저 Safari에서 열어주세요</b><span>현재 브라우저의 메뉴에서 ‘Safari로 열기’를 선택하면 설치할 수 있어요.</span></div>}
       <ol className="install-steps">
-        <li className="active"><i><Share2 /></i><span><b>하단의 공유 버튼 누르기</b><small>화면 아래의 <Share2 /> 모양을 찾아보세요.</small></span></li>
-        <li><i>2</i><span><b>‘홈 화면에 추가’ 선택</b><small>공유 목록을 조금 아래로 내려주세요.</small></span></li>
-        <li><i>3</i><span><b>오른쪽 위 ‘추가’ 누르기</b><small>이제 일반 앱처럼 홈 화면에 생겨요.</small></span></li>
+        <li className="active"><i>1</i><span><b>주소창 옆의 ‘···’ 누르기</b><small>Safari 화면 아래 오른쪽에 있어요.</small></span><span className="safari-address-demo"><em>whats-in-my-house…</em><strong>•••</strong></span></li>
+        <li><i>2</i><span><b>메뉴 맨 위 ‘공유’ 누르기</b><small><Share2 /> 공유 메뉴가 열려요.</small></span></li>
+        <li><i>3</i><span><b>‘홈 화면에 추가’ 선택</b><small>아래로 내린 뒤 <Plus /> 홈 화면에 추가를 눌러주세요.</small></span></li>
       </ol>
-      {isSafari && <div className="install-share-hint"><span>여기를 눌러 시작</span><Share2 /></div>}
+      {isSafari && <p className="install-real-ui-note">위 그림은 설명용이에요. 지금 Safari 아래의 실제 <b>···</b> 버튼을 눌러주세요.</p>}
     </> : <div className="install-browser-notice supported"><b>설치 버튼을 누르면 바로 추가할 수 있어요</b><span>브라우저의 설치 확인창에서 한 번만 승인해 주세요.</span></div>}
   </div>
 }
@@ -295,14 +295,16 @@ function AppOnboarding({ onComplete }: { onComplete: () => void }) {
   const touchStartX = useRef<number | null>(null)
   const installPrompt = useRef<InstallPromptEvent | null>(null)
   const [installed, setInstalled] = useState(isAppDisplayMode)
-  const slide = onboardingSlides[page]
+  const slides = useMemo(() => installed ? onboardingSlides.filter((item) => item.kind !== 'install') : [...onboardingSlides], [installed])
+  const slide = slides[Math.min(page, slides.length - 1)]
   const installPage = slide.kind === 'install'
+  const lastPage = page === slides.length - 1
   useEffect(() => {
     const capturePrompt = (event: Event) => {
       event.preventDefault()
       installPrompt.current = event as InstallPromptEvent
     }
-    const markInstalled = () => setInstalled(true)
+    const markInstalled = () => { setInstalled(true); onComplete() }
     window.addEventListener('beforeinstallprompt', capturePrompt)
     window.addEventListener('appinstalled', markInstalled)
     return () => {
@@ -311,7 +313,7 @@ function AppOnboarding({ onComplete }: { onComplete: () => void }) {
     }
   }, [])
   const goTo = (nextPage: number) => {
-    const bounded = Math.max(0, Math.min(onboardingSlides.length - 1, nextPage))
+    const bounded = Math.max(0, Math.min(slides.length - 1, nextPage))
     if (bounded === page) return
     setDirection(bounded > page ? 'next' : 'prev')
     setPage(bounded)
@@ -332,9 +334,9 @@ function AppOnboarding({ onComplete }: { onComplete: () => void }) {
       installPrompt.current = null
       return
     }
-    if (/iPad|iPhone|iPod/.test(navigator.userAgent)) void showAppAlert('Safari 아래쪽의 공유 버튼을 누른 다음, ‘홈 화면에 추가’를 선택해 주세요.')
   }
-  return <div className={`app-onboarding${installPage ? ' install-page' : ''}`} data-prevent-app-reload="true"><header><b><span>집</span>에뭐있지</b><button onClick={onComplete}>건너뛰기</button></header><main className="onboarding-swipe-area" onTouchStart={(event) => { touchStartX.current = event.touches[0]?.clientX ?? null }} onTouchCancel={() => { touchStartX.current = null }} onTouchEnd={(event) => finishSwipe(event.changedTouches[0]?.clientX ?? 0)}><div className={`onboarding-slide slide-${direction}`} key={page}><div className="onboarding-copy"><span>{slide.eyebrow}</span><h1>{slide.title.split('\n').map((line, index) => <span key={line}>{line}{index === 0 && <br />}</span>)}</h1><p>{slide.description}</p></div><OnboardingVisual kind={slide.kind} /></div></main><footer className={installPage ? 'install-footer' : ''}><div className="onboarding-dots">{onboardingSlides.map((_, index) => <button aria-label={`${index + 1}페이지`} className={index === page ? 'active' : ''} onClick={() => goTo(index)} key={index} />)}</div>{installPage ? <div className="install-actions"><button className="onboarding-next" onClick={startInstall}>{installed ? '집에뭐있지 시작하기' : /iPad|iPhone|iPod/.test(navigator.userAgent) ? '설치 순서 확인하기' : '홈 화면에 설치하기'} <Home /></button><button className="install-later" onClick={onComplete}>지금은 로그인부터 할게요</button></div> : <button className="onboarding-next" onClick={() => goTo(page + 1)}>다음 <ChevronRight /></button>}</footer></div>
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  return <div className={`app-onboarding${installPage ? ' install-page' : ''}`} data-prevent-app-reload="true"><header><b><span>집</span>에뭐있지</b><button onClick={onComplete}>건너뛰기</button></header><main className="onboarding-swipe-area" onTouchStart={(event) => { touchStartX.current = event.touches[0]?.clientX ?? null }} onTouchCancel={() => { touchStartX.current = null }} onTouchEnd={(event) => finishSwipe(event.changedTouches[0]?.clientX ?? 0)}><div className={`onboarding-slide slide-${direction}`} key={page}><div className="onboarding-copy"><span>{slide.eyebrow}</span><h1>{slide.title.split('\n').map((line, index) => <span key={line}>{line}{index === 0 && <br />}</span>)}</h1><p>{slide.description}</p></div><OnboardingVisual kind={slide.kind} /></div></main><footer className={installPage ? 'install-footer' : ''}><div className="onboarding-dots">{slides.map((_, index) => <button aria-label={`${index + 1}페이지`} className={index === page ? 'active' : ''} onClick={() => goTo(index)} key={index} />)}</div>{installPage ? <div className="install-actions">{isIOS ? <strong className="install-open-message">설치 후 홈 화면의 아이콘을 열어주세요</strong> : <button className="onboarding-next" onClick={startInstall}>홈 화면에 설치하기 <Home /></button>}<button className="install-later" onClick={onComplete}>설치하지 않고 로그인하기</button></div> : <button className="onboarding-next" onClick={() => lastPage ? onComplete() : goTo(page + 1)}>{lastPage ? '집에뭐있지 시작하기' : '다음'} <ChevronRight /></button>}</footer></div>
 }
 
 function KitchenSetup({ kitchenId, mapId, onCreated }: { kitchenId: string; mapId: string; onCreated: () => Promise<void> }) {
