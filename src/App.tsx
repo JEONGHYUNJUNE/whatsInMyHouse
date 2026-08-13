@@ -81,7 +81,7 @@ function getYoutubeEmbedUrl(value?: string | null) {
 }
 
 function useLatestAppVersion() {
-  const [latestAsset, setLatestAsset] = useState<string | null>(null)
+  const [latestVersion, setLatestVersion] = useState<string | null>(null)
   useEffect(() => {
     if (import.meta.env.DEV) return
     let checking = false
@@ -93,10 +93,13 @@ function useLatestAppVersion() {
         const response = await fetch(`/index.html?checkedAt=${Date.now()}`, { cache: 'no-store' })
         if (!response.ok) return
         const html = await response.text()
-        const latestAsset = html.match(/src="([^\"]*\/assets\/index-[^\"]+\.js)"/)?.[1]
-        const currentAsset = document.querySelector<HTMLScriptElement>('script[type="module"][src*="/assets/index-"]')?.getAttribute('src')
-        if (!latestAsset || !currentAsset || latestAsset === currentAsset) return
-        setLatestAsset(latestAsset)
+        const latestAssets = [...html.matchAll(/(?:src|href)="([^\"]*\/assets\/index-[^\"]+\.(?:js|css))"/g)].map((match) => match[1]).sort()
+        const currentAssets = [...document.querySelectorAll<HTMLScriptElement | HTMLLinkElement>('script[src*="/assets/index-"],link[href*="/assets/index-"]')]
+          .map((element) => element.getAttribute('src') || element.getAttribute('href'))
+          .filter((asset): asset is string => Boolean(asset && /\.(?:js|css)$/.test(asset)))
+          .sort()
+        if (!latestAssets.length || !currentAssets.length || latestAssets.join('|') === currentAssets.join('|')) return
+        setLatestVersion(latestAssets.join('|'))
       } catch {
         // 네트워크가 불안정하면 현재 버전을 유지하고 다음 확인 때 다시 시도합니다.
       } finally { checking = false }
@@ -115,12 +118,12 @@ function useLatestAppVersion() {
     }
   }, [])
   const applyUpdate = () => {
-    if (!latestAsset) return
+    if (!latestVersion) return
     const nextUrl = new URL(window.location.href)
-    nextUrl.searchParams.set('_appVersion', latestAsset)
+    nextUrl.searchParams.set('_appVersion', latestVersion)
     window.location.replace(nextUrl.toString())
   }
-  return { updateAvailable: Boolean(latestAsset), applyUpdate }
+  return { updateAvailable: Boolean(latestVersion), applyUpdate }
 }
 
 function App() {
