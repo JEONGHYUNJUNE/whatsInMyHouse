@@ -1224,6 +1224,7 @@ function BarcodeCameraScanner({ onDetected }: { onDetected: (barcode: string) =>
   const controlsRef = useRef<IScannerControls | null>(null)
   const detectedRef = useRef(false)
   const [scanning, setScanning] = useState(false)
+  const [checking, setChecking] = useState(false)
   const [message, setMessage] = useState('카메라로 상품 바코드를 비춰 주세요.')
 
   const stop = () => {
@@ -1254,9 +1255,13 @@ function BarcodeCameraScanner({ onDetected }: { onDetected: (barcode: string) =>
           controlsRef.current?.stop()
           controlsRef.current = null
           setScanning(false)
-          setMessage(`${code} 인식 완료 · 상품 정보를 찾고 있어요.`)
+          setChecking(true)
+          setMessage('바코드 인식 완료! 등록된 상품을 찾고 있어요.')
           if (navigator.vibrate) navigator.vibrate(80)
-          void onDetected(code)
+          void onDetected(code).finally(() => {
+            setChecking(false)
+            setMessage('상품 확인이 끝났어요. 아래 정보를 확인해 주세요.')
+          })
         },
       )
     } catch (error) {
@@ -1266,10 +1271,10 @@ function BarcodeCameraScanner({ onDetected }: { onDetected: (barcode: string) =>
     }
   }
 
-  return <section className={`barcode-camera ${scanning ? 'scanning' : ''}`}>
-    <div className="camera-preview"><video ref={videoRef} muted playsInline /><div className="scan-frame"><span /></div></div>
+  return <section className={`barcode-camera ${scanning ? 'scanning' : ''} ${checking ? 'checking' : ''}`}>
+    <div className="camera-preview"><video ref={videoRef} muted playsInline /><div className="scan-frame"><span /></div>{checking && <div className="barcode-checking"><LoaderCircle className="spin" /><b>상품 정보 조회 중</b><small>잠시만 기다려 주세요.</small></div>}</div>
     <p>{message}</p>
-    {scanning ? <button type="button" onClick={stop}><X /> 스캔 취소</button> : <button type="button" onClick={() => void start()}><Camera /> 카메라로 자동 스캔</button>}
+    {checking ? <button type="button" disabled><LoaderCircle className="spin" /> 상품 확인 중</button> : scanning ? <button type="button" onClick={stop}><X /> 스캔 취소</button> : <button type="button" onClick={() => void start()}><Camera /> 카메라로 자동 스캔</button>}
   </section>
 }
 

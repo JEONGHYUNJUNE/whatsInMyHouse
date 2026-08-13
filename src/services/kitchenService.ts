@@ -425,7 +425,7 @@ export async function lookupBarcode(barcode: string, profileId?: string, kitchen
 
   const { data: foodSafety } = await supabase.functions.invoke('barcode-lookup', { body: { barcode } }).catch(() => ({ data: null }))
   const hasDomesticProduct = Boolean(foodSafety?.found && String(foodSafety.name || '').trim())
-  const openFoodFacts = hasDomesticProduct ? null : await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}?fields=product_name,product_name_ko,brands,image_front_small_url,categories_tags`)
+  const openFoodFacts = hasDomesticProduct ? null : await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}?fields=product_name,product_name_ko,brands,image_front_small_url,categories_tags`, { signal: AbortSignal.timeout(5000) })
     .then((response) => response.ok ? response.json() : null).catch(() => null)
   const offProduct = openFoodFacts?.product || null
   const name = hasDomesticProduct ? foodSafety.name : offProduct?.product_name_ko || offProduct?.product_name || ''

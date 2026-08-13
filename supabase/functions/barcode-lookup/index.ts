@@ -7,7 +7,7 @@ type FoodSafetyRow = Record<string, string | undefined>
 
 async function fetchFoodSafety(service: string, key: string, filter: string) {
   const url = `https://openapi.foodsafetykorea.go.kr/api/${encodeURIComponent(key)}/${service}/json/1/5/${filter}`
-  const response = await fetch(url, { signal: AbortSignal.timeout(7000) })
+  const response = await fetch(url, { signal: AbortSignal.timeout(4000) })
   if (!response.ok) return [] as FoodSafetyRow[]
   const json = await response.json()
   return (json?.[service]?.row || []) as FoodSafetyRow[]
@@ -48,9 +48,11 @@ Deno.serve(async (request) => {
     const apiKey = Deno.env.get('FOOD_SAFETY_KOREA_API_KEY')
     if (!apiKey) return Response.json({ found: false, reason: 'api_key_not_configured' }, { status: 503, headers: corsHeaders })
 
-    const distributionRows = await fetchFoodSafety('I2570', apiKey, `BRCD_NO=${encodeURIComponent(barcode)}`)
+    const [distributionRows, linkedRows] = await Promise.all([
+      fetchFoodSafety('I2570', apiKey, `BRCD_NO=${encodeURIComponent(barcode)}`).catch(() => []),
+      fetchFoodSafety('C005', apiKey, `BAR_CD=${encodeURIComponent(barcode)}`).catch(() => []),
+    ])
     const distributionProduct = distributionRows.find((row) => String(row.BRCD_NO || '').replace(/\D/g, '') === barcode)
-    const linkedRows = distributionProduct ? [] : await fetchFoodSafety('C005', apiKey, `BAR_CD=${encodeURIComponent(barcode)}`)
     const linkedProduct = linkedRows.find((row) => String(row.BAR_CD || '').replace(/\D/g, '') === barcode)
     const barcodeProduct = distributionProduct || linkedProduct
     if (!barcodeProduct) return Response.json({ found: false }, { headers: corsHeaders })

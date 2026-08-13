@@ -103,6 +103,11 @@
 .barcode-camera p { margin: 9px 2px; color: #65786e; font-size: 10px; text-align: center; }
 .barcode-camera > button { width: 100%; min-height: 42px; border: 0; border-radius: 11px; background: var(--green); color: #fff; display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 11px; font-weight: 800; }
 .barcode-camera > button svg { width: 17px; }
+.barcode-camera > button:disabled { opacity: .78; }
+.barcode-checking { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #fff; background: rgba(12,31,23,.78); backdrop-filter: blur(3px); }
+.barcode-checking svg { width: 30px; height: 30px; color: #d6ef9a; }
+.barcode-checking b { font-size: 13px; }
+.barcode-checking small { color: rgba(255,255,255,.72); font-size: 10px; }
 .barcode-manual { margin-bottom: 12px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
 .barcode-manual summary { padding: 11px 13px; cursor: pointer; color: #6f8178; font-size: 10px; }
 .barcode-manual > div { display: flex; gap: 7px; padding: 0 10px 10px; }
