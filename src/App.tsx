@@ -1162,6 +1162,8 @@ function AddItemSheet({ data, initialSpaceId, profileId, demoMode, onClose, onSa
 }
 
 type ReceiptCandidate = { id: string; name: string; quantity: number; unit: string; spaceId: string; selected: boolean; deadlineType: DeadlineType; deadlineDate: string; purchasedAt: string; barcode?: string; catalogId?: string | null; category?: string }
+type ReceiptCropBox = { x: number; y: number; width: number; height: number }
+type ReceiptCropAction = { mode: 'move' | 'nw' | 'ne' | 'sw' | 'se'; startX: number; startY: number; box: ReceiptCropBox }
 
 function receiptCandidatesFromText(text: string, defaultSpaceId: string) {
   const ignored = /^(합계|총액|과세|면세|부가세|공급가|결제|카드|현금|거스름|승인|영수증|사업자|대표|전화|주소|일시|날짜|시간|품명|단가|수량|금액|할인|소계|봉투|포인트|쿠폰|신용|체크|가맹|카드번호|할부|vat|total|pos)/i
@@ -1294,6 +1296,25 @@ async function preprocessReceiptImages(file: File) {
   return Promise.all([toBlob(croppedCanvas, .94), toBlob(binaryCanvas, .98)])
 }
 
+async function cropReceiptImage(file: File, crop: ReceiptCropBox) {
+  const bitmap = await createImageBitmap(file)
+  const sourceX = Math.round(bitmap.width * crop.x / 100)
+  const sourceY = Math.round(bitmap.height * crop.y / 100)
+  const sourceWidth = Math.max(1, Math.round(bitmap.width * crop.width / 100))
+  const sourceHeight = Math.max(1, Math.round(bitmap.height * crop.height / 100))
+  const canvas = document.createElement('canvas')
+  canvas.width = sourceWidth
+  canvas.height = sourceHeight
+  const context = canvas.getContext('2d')
+  if (!context) { bitmap.close(); return file }
+  context.fillStyle = '#fff'
+  context.fillRect(0, 0, sourceWidth, sourceHeight)
+  context.drawImage(bitmap, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, sourceWidth, sourceHeight)
+  bitmap.close()
+  const blob = await new Promise<Blob>((resolve) => canvas.toBlob((value) => resolve(value || file), 'image/jpeg', .96))
+  return new File([blob], `receipt-crop-${Date.now()}.jpg`, { type: 'image/jpeg' })
+}
+
 function receiptDateFromText(text: string) {
   const match = text.match(/(20\d{2}|\d{2})[./-]\s*(\d{1,2})[./-]\s*(\d{1,2})/)
   if (!match) return null
@@ -1303,12 +1324,65 @@ function receiptDateFromText(text: string) {
 
 function ReceiptScanner({ data, profileId, initialSpaceId, demoMode, onSaved }: { data: AppData; profileId: string; initialSpaceId: string; demoMode: boolean; onSaved: () => Promise<void> }) {
   const [imageUrl, setImageUrl] = useState('')
+  const [cropFile, setCropFile] = useState<File | null>(null)
+  const [cropImageUrl, setCropImageUrl] = useState('')
+  const [cropBox, setCropBox] = useState<ReceiptCropBox>({ x: 7, y: 22, width: 86, height: 56 })
+  const [cropping, setCropping] = useState(false)
   const [candidates, setCandidates] = useState<ReceiptCandidate[]>([])
   const [progress, setProgress] = useState(0)
   const [recognizing, setRecognizing] = useState(false)
   const [saving, setSaving] = useState(false)
+  const cropFrameRef = useRef<HTMLDivElement | null>(null)
+  const cropActionRef = useRef<ReceiptCropAction | null>(null)
   const selectedCount = candidates.filter((item) => item.selected && item.name.trim()).length
   const update = (id: string, patch: Partial<ReceiptCandidate>) => setCandidates((current) => current.map((item) => item.id === id ? { ...item, ...patch } : item))
+  const chooseReceipt = (file: File) => {
+    if (cropImageUrl) URL.revokeObjectURL(cropImageUrl)
+    setCropFile(file)
+    setCropImageUrl(URL.createObjectURL(file))
+    setCropBox({ x: 7, y: 22, width: 86, height: 56 })
+    setCandidates([])
+  }
+  const closeCrop = () => {
+    if (cropImageUrl) URL.revokeObjectURL(cropImageUrl)
+    setCropFile(null); setCropImageUrl(''); setCropping(false); cropActionRef.current = null
+  }
+  const startCropAction = (event: React.PointerEvent, mode: ReceiptCropAction['mode']) => {
+    event.preventDefault(); event.stopPropagation()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    cropActionRef.current = { mode, startX: event.clientX, startY: event.clientY, box: cropBox }
+  }
+  const moveCropAction = (event: React.PointerEvent) => {
+    const action = cropActionRef.current; const frame = cropFrameRef.current
+    if (!action || !frame) return
+    const bounds = frame.getBoundingClientRect()
+    const dx = (event.clientX - action.startX) / bounds.width * 100
+    const dy = (event.clientY - action.startY) / bounds.height * 100
+    const minimum = 18
+    if (action.mode === 'move') {
+      setCropBox({ ...action.box, x: Math.max(0, Math.min(100 - action.box.width, action.box.x + dx)), y: Math.max(0, Math.min(100 - action.box.height, action.box.y + dy)) })
+      return
+    }
+    let left = action.box.x; let top = action.box.y
+    let right = action.box.x + action.box.width; let bottom = action.box.y + action.box.height
+    if (action.mode.includes('w')) left = Math.max(0, Math.min(right - minimum, left + dx))
+    if (action.mode.includes('e')) right = Math.min(100, Math.max(left + minimum, right + dx))
+    if (action.mode.includes('n')) top = Math.max(0, Math.min(bottom - minimum, top + dy))
+    if (action.mode.includes('s')) bottom = Math.min(100, Math.max(top + minimum, bottom + dy))
+    setCropBox({ x: left, y: top, width: right - left, height: bottom - top })
+  }
+  const confirmCrop = async () => {
+    if (!cropFile || cropping) return
+    setCropping(true)
+    try {
+      const cropped = await cropReceiptImage(cropFile, cropBox)
+      closeCrop()
+      await recognize(cropped)
+    } catch (error) {
+      setCropping(false)
+      void showAppAlert(error instanceof Error ? error.message : '선택한 영역을 처리하지 못했습니다.', '사진을 처리하지 못했어요', 'danger')
+    }
+  }
   const recognize = async (file: File) => {
     if (imageUrl) URL.revokeObjectURL(imageUrl)
     setImageUrl(URL.createObjectURL(file)); setCandidates([]); setRecognizing(true); setProgress(0)
@@ -1337,7 +1411,11 @@ function ReceiptScanner({ data, profileId, initialSpaceId, demoMode, onSaved }: 
       const enriched = await Promise.all(next.map(async (item) => {
         if (!item.barcode) return item
         const found = await lookupBarcode(item.barcode, profileId, data.kitchen.id).catch(() => null)
-        return found ? { ...item, name: found.name, catalogId: found.catalogId, category: found.category, unit: found.unit || item.unit } : item
+        // NAVER 최종 검색은 사용자가 확인해야 하는 후보 목록을 반환할 수 있습니다.
+        // 영수증 일괄 등록에서는 후보를 자동 확정하지 않고 OCR로 읽은 상품명을 유지합니다.
+        return found && 'name' in found
+          ? { ...item, name: found.name, catalogId: found.catalogId, category: found.category, unit: found.unit || item.unit }
+          : item
       }))
       setCandidates(enriched.map((item) => ({ ...item, deadlineDate: receiptDate, purchasedAt: receiptDate })))
       if (!next.length) void showAppAlert('상품으로 판단할 글자를 찾지 못했어요. 영수증을 밝고 평평하게 촬영해 다시 시도해 주세요.', '인식 결과가 없어요', 'warning')
@@ -1355,7 +1433,7 @@ function ReceiptScanner({ data, profileId, initialSpaceId, demoMode, onSaved }: 
     } catch (error) { void showAppAlert(error instanceof Error ? error.message : '상품을 저장하지 못했습니다.', '일괄 저장 실패', 'danger') }
     finally { setSaving(false) }
   }
-  return <section className="receipt-scanner"><div className="receipt-photo"><div className="receipt-photo-preview">{imageUrl ? <img src={imageUrl} alt="선택한 영수증" /> : <ReceiptText />}<span><b>영수증으로 한 번에 등록</b><small>상품명과 구매일을 기기에서 인식해요.</small></span></div><div className="receipt-photo-actions"><label><Camera /> 영수증 촬영<input type="file" accept="image/*" capture="environment" disabled={recognizing} onChange={(event) => { const file = event.target.files?.[0]; if (file) void recognize(file); event.currentTarget.value = '' }} /></label><label><ReceiptText /> 사진에서 선택<input type="file" accept="image/*" disabled={recognizing} onChange={(event) => { const file = event.target.files?.[0]; if (file) void recognize(file); event.currentTarget.value = '' }} /></label></div></div>{recognizing && <div className="receipt-progress"><span style={{ width: `${progress}%` }} /><b>영수증 읽는 중 {progress}%</b></div>}{candidates.length > 0 && <><div className="receipt-review-head"><div><b>인식된 상품</b><span>{selectedCount}/{candidates.length}개 선택</span></div><label className="receipt-select-all"><span>전체 선택</span><input type="checkbox" checked={selectedCount === candidates.length} onChange={(event) => setCandidates((current) => current.map((item) => ({ ...item, selected: event.target.checked })))} /><i><Check /></i></label></div><p className="receipt-guide">잘못 인식된 이름과 수량을 고친 뒤 저장할 상품만 선택해 주세요.</p><div className="receipt-items">{candidates.map((item) => <article className={item.selected ? 'selected' : ''} key={item.id}><button className="receipt-select" aria-label={`${item.name} 선택`} onClick={() => update(item.id, { selected: !item.selected })}>{item.selected && <Check />}</button><input className="receipt-name" value={item.name} onChange={(event) => update(item.id, { name: event.target.value })} /><input className="receipt-quantity" inputMode="decimal" value={item.quantity} onChange={(event) => update(item.id, { quantity: Math.max(.1, Number(event.target.value) || 1) })} /><select value={item.unit} onChange={(event) => update(item.id, { unit: event.target.value })}><option>개</option><option>팩</option><option>봉</option><option>병</option><option>통</option><option>g</option><option>kg</option></select><select className="receipt-space" value={item.spaceId} onChange={(event) => update(item.id, { spaceId: event.target.value })}>{data.spaces.map((space) => <option value={space.id} key={space.id}>{space.name}</option>)}</select><div className="receipt-deadline"><select aria-label={`${item.name} 관리 기준`} value={item.deadlineType} onChange={(event) => { const nextType = event.target.value as DeadlineType; update(item.id, { deadlineType: nextType, deadlineDate: nextType === 'purchase' ? item.purchasedAt : '' }) }}><option value="purchase">구매일 기준</option><option value="use_by">소비기한</option><option value="expiration">유통기한</option></select><input aria-label={`${item.name} 관리 날짜`} type="date" value={item.deadlineDate} onChange={(event) => update(item.id, { deadlineDate: event.target.value, ...(item.deadlineType === 'purchase' ? { purchasedAt: event.target.value } : {}) })} /></div><button className="receipt-row-remove" aria-label={`${item.name} 행 삭제`} onClick={() => setCandidates((current) => current.filter((candidate) => candidate.id !== item.id))}><X /></button></article>)}</div><button className="primary-button" disabled={saving || !selectedCount} onClick={() => void saveAll()}>{saving ? <LoaderCircle className="spin" /> : <PackageCheck />} 선택한 {selectedCount}개 저장</button></>}</section>
+  return <section className="receipt-scanner"><div className="receipt-photo"><div className="receipt-photo-preview">{imageUrl ? <img src={imageUrl} alt="선택한 영수증" /> : <ReceiptText />}<span><b>영수증으로 한 번에 등록</b><small>상품 목록 영역을 선택해 더 정확하게 인식해요.</small></span></div><div className="receipt-photo-actions"><label><Camera /> 영수증 촬영<input type="file" accept="image/*" capture="environment" disabled={recognizing || cropping} onChange={(event) => { const file = event.target.files?.[0]; if (file) chooseReceipt(file); event.currentTarget.value = '' }} /></label><label><ReceiptText /> 사진에서 선택<input type="file" accept="image/*" disabled={recognizing || cropping} onChange={(event) => { const file = event.target.files?.[0]; if (file) chooseReceipt(file); event.currentTarget.value = '' }} /></label></div></div>{cropFile && cropImageUrl && <div className="receipt-crop-step" data-prevent-app-reload="true"><div className="receipt-crop-heading"><div><b>상품 목록 영역을 맞춰주세요</b><span>네모를 움직이거나 모서리를 끌어 조절할 수 있어요.</span></div><button onClick={closeCrop} aria-label="영역 선택 취소"><X /></button></div><div className="receipt-crop-frame" ref={cropFrameRef} onPointerMove={moveCropAction} onPointerUp={() => { cropActionRef.current = null }} onPointerCancel={() => { cropActionRef.current = null }}><img src={cropImageUrl} alt="영수증 영역 선택" draggable={false} /><div className="receipt-crop-shade" /><div className="receipt-crop-selection" style={{ left: `${cropBox.x}%`, top: `${cropBox.y}%`, width: `${cropBox.width}%`, height: `${cropBox.height}%` }} onPointerDown={(event) => startCropAction(event, 'move')}><span className="crop-handle nw" onPointerDown={(event) => startCropAction(event, 'nw')} /><span className="crop-handle ne" onPointerDown={(event) => startCropAction(event, 'ne')} /><span className="crop-handle sw" onPointerDown={(event) => startCropAction(event, 'sw')} /><span className="crop-handle se" onPointerDown={(event) => startCropAction(event, 'se')} /><em>상품명이 있는 부분만</em></div></div><div className="receipt-crop-presets"><button onClick={() => setCropBox({ x: 7, y: 22, width: 86, height: 56 })}>자동 영역</button><button onClick={() => setCropBox({ x: 0, y: 0, width: 100, height: 100 })}>전체 영수증</button></div><button className="primary-button" disabled={cropping} onClick={() => void confirmCrop()}>{cropping ? <LoaderCircle className="spin" /> : <ScanLine />} 선택 영역 인식하기</button></div>}{recognizing && <div className="receipt-progress"><span style={{ width: `${progress}%` }} /><b>선택한 영역 읽는 중 {progress}%</b></div>}{candidates.length > 0 && <><div className="receipt-review-head"><div><b>인식된 상품</b><span>{selectedCount}/{candidates.length}개 선택</span></div><label className="receipt-select-all"><span>전체 선택</span><input type="checkbox" checked={selectedCount === candidates.length} onChange={(event) => setCandidates((current) => current.map((item) => ({ ...item, selected: event.target.checked })))} /><i><Check /></i></label></div><p className="receipt-guide">잘못 인식된 이름과 수량을 고친 뒤 저장할 상품만 선택해 주세요.</p><div className="receipt-items">{candidates.map((item) => <article className={item.selected ? 'selected' : ''} key={item.id}><button className="receipt-select" aria-label={`${item.name} 선택`} onClick={() => update(item.id, { selected: !item.selected })}>{item.selected && <Check />}</button><input className="receipt-name" value={item.name} onChange={(event) => update(item.id, { name: event.target.value })} /><input className="receipt-quantity" inputMode="decimal" value={item.quantity} onChange={(event) => update(item.id, { quantity: Math.max(.1, Number(event.target.value) || 1) })} /><select value={item.unit} onChange={(event) => update(item.id, { unit: event.target.value })}><option>개</option><option>팩</option><option>봉</option><option>병</option><option>통</option><option>g</option><option>kg</option></select><select className="receipt-space" value={item.spaceId} onChange={(event) => update(item.id, { spaceId: event.target.value })}>{data.spaces.map((space) => <option value={space.id} key={space.id}>{space.name}</option>)}</select><div className="receipt-deadline"><select aria-label={`${item.name} 관리 기준`} value={item.deadlineType} onChange={(event) => { const nextType = event.target.value as DeadlineType; update(item.id, { deadlineType: nextType, deadlineDate: nextType === 'purchase' ? item.purchasedAt : '' }) }}><option value="purchase">구매일 기준</option><option value="use_by">소비기한</option><option value="expiration">유통기한</option></select><input aria-label={`${item.name} 관리 날짜`} type="date" value={item.deadlineDate} onChange={(event) => update(item.id, { deadlineDate: event.target.value, ...(item.deadlineType === 'purchase' ? { purchasedAt: event.target.value } : {}) })} /></div><button className="receipt-row-remove" aria-label={`${item.name} 행 삭제`} onClick={() => setCandidates((current) => current.filter((candidate) => candidate.id !== item.id))}><X /></button></article>)}</div><button className="primary-button" disabled={saving || !selectedCount} onClick={() => void saveAll()}>{saving ? <LoaderCircle className="spin" /> : <PackageCheck />} 선택한 {selectedCount}개 저장</button></>}</section>
 }
 
 function BarcodeCameraScanner({ onDetected }: { onDetected: (barcode: string) => Promise<void> }) {

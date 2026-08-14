@@ -78,7 +78,7 @@ begin
     else
       notification_type := 'expiry_upcoming';
       delivery_key := 7;
-      notification_title := '일주일 안에 확인해 주세요';
+      notification_title := '먼저 먹으면 좋아요';
       notification_message := case
         when item.target_date = current_date then item.product_name || '의 ' || item.deadline_label || '이 오늘까지예요.'
         else item.product_name || '의 ' || item.deadline_label || '이 ' || (item.target_date - current_date) || '일 남았어요.'
@@ -114,3 +114,10 @@ $$;
 
 revoke all on function public.sync_my_expiry_notifications() from public;
 grant execute on function public.sync_my_expiry_notifications() to authenticated;
+
+-- 함수 적용 전에 만들어진 읽지 않은 알림도 새 문구로 통일합니다.
+update public.notifications
+set title = '먼저 먹으면 좋아요'
+where notification_type = 'expiry_upcoming'
+  and is_read = false
+  and title = '일주일 안에 확인해 주세요';
