@@ -1,0 +1,15 @@
+import {mkdir,cp,writeFile,readFile} from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const response=await fetch('https://tennis-chung.vercel.app/bukang/config.js');
+if(!response.ok)throw Error(`Public leaderboard configuration unavailable: ${response.status}`);
+const text=await response.text(),match=text.match(/export const recordsConfig=(\{.*\});/);
+if(!match)throw Error('Invalid public configuration format');
+const config=JSON.parse(match[1]);
+assert.match(config.url,/^https:\/\/[a-z0-9-]+\.supabase\.co$/);
+if(config.key.startsWith('eyJ'))assert.equal(JSON.parse(Buffer.from(config.key.split('.')[1],'base64url')).role,'anon');
+else assert.ok(config.key.startsWith('sb_publishable_'));
+await mkdir('dist',{recursive:true});await cp('src','dist',{recursive:true});
+await writeFile('dist/config.js',`// Public client configuration only.\nexport const recordsConfig=${JSON.stringify(config)};\n`);
+const html=await readFile('dist/index.html','utf8');assert.ok(html.includes('<base href="/">'));
+assert.ok(!html.includes('<base href="/bukang/">'));
+console.log('Standalone game built; public leaderboard connected.');
