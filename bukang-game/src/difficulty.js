@@ -1,4 +1,4 @@
-import {routePoint, CHANNEL_RADIUS} from './harbor.js?v=extended2';
+import {routePoint, CHANNEL_RADIUS} from './harbor.js?v=waterfix3';
 export const NETS=[{i:11,t:.42,phase:0},{i:8,t:.45,phase:3.4},{i:5,t:.5,phase:6.1},{i:2,t:.5,phase:1.8}];
 export function netState(net,clock){const p=routePoint(net.i,net.t),cycle=(clock+net.phase)%10;return {...p,active:cycle<7,gap:Math.sin(clock*.8+net.phase)*92,gapWidth:104,remaining:Math.ceil(cycle<7?7-cycle:10-cycle)}}
 export function netCollision(x,y,clock,radius=30){for(const net of NETS){const n=netState(net,clock);if(!n.active)continue;const dx=x-n.x,dy=y-n.y,along=dx*Math.cos(n.a)+dy*Math.sin(n.a),across=-dx*Math.sin(n.a)+dy*Math.cos(n.a);if(Math.abs(along)<radius+9&&Math.abs(across)<CHANNEL_RADIUS+radius&&Math.abs(across-n.gap)>n.gapWidth/2-radius)return n;}return null;}
