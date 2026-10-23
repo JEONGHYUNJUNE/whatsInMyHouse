@@ -19,6 +19,8 @@ const sharkSprite=new Image();sharkSprite.src='assets/shark-player.png';
 const W=WORLD.width,H=WORLD.height;let vw=0,vh=0,dpr=1,cam={x:0,y:0},time=0,last=0,state='title',chapter=1,hp=100,score=0,got=0,caught=0,cooldown=0,dash=0,invuln=0,elapsed=0,modalAction=null,toastTimer=0;
 let player={x:220,y:1470,a:-Math.PI/2},keys=[],rocks=[],fish=[],particles=[];const held=new Set(),input={x:0,y:0},gate=EXIT;let joystickId=null;const bubbles=Array.from({length:90},()=>({x:Math.random()*W,y:Math.random()*H,r:Math.random()*2+1,s:Math.random()*10+5}));
 let people=[],throwers=[],projectiles=[],hazardClock=0,keyHold=0,velocity={x:0,y:0};
+const BOAT_NET={radius:125,damage:24,warning:1.25,flight:.85,range:850,cooldown:6.5};
+let boatNetStates=[],boatNetCooldown=0;
 let chase=null,chaseTrail=[],chaseDelay=0;
 let best=0;try{best=Number(localStorage.getItem('bukang-best-time-v2'))||0}catch{}$('best').textContent=best?`⏱ 내 최단 기록 ${formatTime(best)}`:'';
 let runToken=null,runStart=0,finishMs=null,registered=false,registering=false,runGeneration=0,boardGeneration=0,registeredName='';
@@ -28,7 +30,7 @@ function resetInput(){held.clear();input.x=input.y=0;joystickId=null;$('knob').s
 function hud(){ $('chapter').textContent=chapter===1?'CHAPTER 01 / HARD ESCAPE':'CHAPTER 02 / OPEN WATER';$('mission').textContent=chapter===1?(got===3?'마리나 탈출 · 추격 중':'수문의 열쇠를 찾아라'):'바다의 사냥꾼';$('progress').textContent=chapter===1?`열쇠 ${got} / 3 · 경계 ${alertLevel(got)}${keyHold>0?' · 확보 '+Math.floor(keyHold/2.2*100)+'%':''}`:`사냥 ${caught} / 8 · ${score} PT`;$('energy-fill').style.width=hp+'%';$('energy-value').textContent=Math.ceil(hp);$('health').classList.toggle('low',hp<=30);$('health').setAttribute('aria-valuenow',String(hp));$('attack').disabled=cooldown>0;}
 function setup(ch){
  if(ch!==1)throw new Error('CHAPTER_2_COMING_SOON');
- chapter=ch;resetInput();cooldown=dash=invuln=0;hazardClock=0;keyHold=0;velocity={x:0,y:0};particles=[];projectiles=[];chase=null;chaseTrail=[];chaseDelay=0;
+ chapter=ch;resetInput();cooldown=dash=invuln=0;hazardClock=0;keyHold=0;velocity={x:0,y:0};particles=[];projectiles=[];chase=null;chaseTrail=[];chaseDelay=0;boatNetStates=[];boatNetCooldown=2.5;
  if(ch===1){
   player={...SPAWN};got=0;keys=KEY_POINTS.map(p=>({...p,taken:false}));
   rocks=[{...routePoint(10,.6,100),r:44},{...routePoint(8,.25,-98),r:48},{...routePoint(6,.25,100),r:40},{...routePoint(5,.45,-108),r:42},{...routePoint(12,.6,-100),r:40},{...routePoint(3,.45,95),r:45},{...routePoint(2,.7,-100),r:48}];
@@ -99,10 +101,25 @@ function updatePeople(dt){
   if(n.timer===0&&Math.hypot(player.x-n.x,player.y-n.y)<1050){n.targets=throwPattern(n,player,velocity,level);n.target=n.targets[0];n.warning=.95-level*.08;n.warningTotal=n.warning;if(toastTimer<=0)toast(`${n.name} 조준! 경계 ${level} · 착지 표시에서 벗어나세요.`);}
 
  }
+ updateBoatNets(dt);
  for(const p of projectiles){p.age+=dt;const t=Math.min(1,p.age/p.flight);p.x=p.sx+(p.tx-p.sx)*t;p.y=p.sy+(p.ty-p.sy)*t;
   if(p.age>=p.flight&&!p.splashed){p.splashed=true;burst(p.tx,p.ty,'#bddcda',16);}
-  if(p.age>=p.flight&&!p.hit&&Math.hypot(player.x-p.tx,player.y-p.ty)<70){p.hit=true;takeDamage(p.kind==='chicken'?22:28,p.kind==='chicken'?'닭고기에 맞았다 · 에너지 −22':'캔에 맞았다 · 에너지 −28');if(state!=='play')return;}
+  if(p.age>=p.flight&&!p.hit&&Math.hypot(player.x-p.tx,player.y-p.ty)<(p.kind==='net'?BOAT_NET.radius:70)){p.hit=true;takeDamage(p.kind==='net'?BOAT_NET.damage:p.kind==='chicken'?22:28,p.kind==='net'?'수색 그물에 맞았다 · 에너지 −24':p.kind==='chicken'?'닭고기에 맞았다 · 에너지 −22':'캔에 맞았다 · 에너지 −28');if(state!=='play')return;}
  }projectiles=projectiles.filter(p=>p.age<p.life);
+}
+function updateBoatNets(dt){
+ boatNetCooldown=Math.max(0,boatNetCooldown-dt);
+ const boats=[...patrols(hazardClock),...(chase&&chaseDelay<=0?[chase]:[])];
+ for(const [i,boat] of boats.entries()){
+  const n=boatNetStates[i]??(boatNetStates[i]={timer:1.5+i*1.4,warning:0,target:null});
+  if(n.warning>0){n.warning=Math.max(0,n.warning-dt);if(n.warning===0){projectiles.push({sx:boat.x,sy:boat.y,x:boat.x,y:boat.y,tx:n.target.x,ty:n.target.y,kind:'net',age:0,flight:BOAT_NET.flight,life:BOAT_NET.flight+.65,hit:false});n.target=null;n.timer=BOAT_NET.cooldown;}continue;}
+  n.timer=Math.max(0,n.timer-dt);
+  if(n.timer===0&&boatNetCooldown===0&&Math.hypot(player.x-boat.x,player.y-boat.y)<BOAT_NET.range){
+   const aim={x:player.x+velocity.x*.25,y:player.y+velocity.y*.25};
+   n.target=isWater(aim.x,aim.y,0,1)?aim:{x:player.x,y:player.y};n.warning=BOAT_NET.warning;boatNetCooldown=3.5;
+   toast('수색보트 그물 투척! 넓은 파란 원 밖으로 피하세요.');
+  }
+ }
 }
 function updateChase(dt){
  if(!chase)return;
@@ -166,10 +183,18 @@ function drawPerson(p,isThrower=false){
  ctx.strokeStyle=p.color;ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(0,-8);ctx.lineTo(isThrower&&p.warning>0?17:6,-(isThrower&&p.warning>0?12:13));ctx.moveTo(0,8);ctx.lineTo(8,12);ctx.stroke();ctx.fillStyle=p.color;ctx.beginPath();ctx.ellipse(0,0,8,11,0,0,Math.PI*2);ctx.fill();ctx.fillStyle='#c9b49c';ctx.beginPath();ctx.arc(3,0,6,0,Math.PI*2);ctx.fill();ctx.fillStyle=isThrower?'#49483b':'#3c3934';ctx.beginPath();ctx.arc(1,0,5,Math.PI*.45,Math.PI*1.55);ctx.fill();ctx.restore();
  if(isThrower){ctx.save();ctx.translate(p.x,p.y);ctx.strokeStyle=p.warning>0?'#f1b486':'#deaa6b99';ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,0,30+Math.sin(time*3)*2,0,Math.PI*2);ctx.stroke();label(p.name,0,-45,19,'#f0c49c');if(p.warning>0)label('투척 준비!',0,-70,18,'#ffd0a3');ctx.restore();}
 }
-function targetRing(x,y,progress){ctx.save();ctx.translate(x,y);ctx.fillStyle='#e0845130';ctx.strokeStyle='#ffc192bb';ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,0,70,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.strokeStyle='#f8c18e';ctx.lineWidth=4;ctx.beginPath();ctx.arc(0,0,70,-Math.PI/2,-Math.PI/2+progress*Math.PI*2);ctx.stroke();ctx.beginPath();ctx.moveTo(-12,0);ctx.lineTo(12,0);ctx.moveTo(0,-12);ctx.lineTo(0,12);ctx.stroke();ctx.restore();}
+function targetRing(x,y,progress,radius=70,isNet=false){ctx.save();ctx.translate(x,y);ctx.fillStyle=isNet?'#72cde42b':'#e0845130';ctx.strokeStyle=isNet?'#95e2f5':'#ffc192bb';ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,0,radius,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.strokeStyle=isNet?'#95e2f5':'#f8c18e';ctx.lineWidth=4;ctx.beginPath();ctx.arc(0,0,radius,-Math.PI/2,-Math.PI/2+progress*Math.PI*2);ctx.stroke();ctx.beginPath();ctx.moveTo(-12,0);ctx.lineTo(12,0);ctx.moveTo(0,-12);ctx.lineTo(0,12);ctx.stroke();ctx.restore();}
+function drawThrownNet(x,y,radius,alpha=1){
+ ctx.save();ctx.translate(x,y);ctx.globalAlpha=alpha;ctx.fillStyle='#80d5e51c';ctx.strokeStyle='#b5e7e8';ctx.lineWidth=2.5;
+ ctx.beginPath();ctx.arc(0,0,radius,0,Math.PI*2);ctx.fill();ctx.stroke();
+ ctx.strokeStyle='#acd9dba0';ctx.lineWidth=1.5;
+ for(let v=-radius+18;v<radius;v+=22){const edge=Math.sqrt(radius*radius-v*v);ctx.beginPath();ctx.moveTo(v,-edge);ctx.lineTo(v,edge);ctx.moveTo(-edge,v);ctx.lineTo(edge,v);ctx.stroke();}
+ for(let i=0;i<8;i++){const a=i*Math.PI/4;ctx.fillStyle='#eed9aa';ctx.beginPath();ctx.arc(Math.cos(a)*radius,Math.sin(a)*radius,4,0,Math.PI*2);ctx.fill();}ctx.restore();
+}
 function drawProjectiles(){
+ for(const n of boatNetStates)if(n.warning>0&&n.target)targetRing(n.target.x,n.target.y,1-n.warning/BOAT_NET.warning,BOAT_NET.radius,true);
  for(const n of throwers)if(n.warning>0)for(const target of n.targets||[])targetRing(target.x,target.y,1-n.warning/n.warningTotal);
- for(const p of projectiles){if(p.age<p.flight){targetRing(p.tx,p.ty,p.age/p.flight);const t=p.age/p.flight,lift=Math.sin(t*Math.PI)*155;ctx.save();ctx.translate(p.x,p.y);ctx.fillStyle='#06172288';ctx.beginPath();ctx.ellipse(0,0,14,7,0,0,Math.PI*2);ctx.fill();ctx.translate(0,-lift);ctx.rotate(p.age*9);if(p.kind==='chicken'){ctx.strokeStyle='#d9c6a5';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(-10,0);ctx.lineTo(11,0);ctx.stroke();ctx.fillStyle='#cb935b';ctx.beginPath();ctx.ellipse(8,0,13,9,-.3,0,Math.PI*2);ctx.fill();ctx.fillStyle='#f3ddaf';ctx.beginPath();ctx.arc(-12,-3,4,0,Math.PI*2);ctx.arc(-12,3,4,0,Math.PI*2);ctx.fill();}else{ctx.fillStyle='#a4b5b6';ctx.fillRect(-8,-12,16,24);ctx.fillStyle='#9e6650';ctx.fillRect(-8,-5,16,10);ctx.fillStyle='#d5dddd';ctx.beginPath();ctx.ellipse(0,-12,8,3,0,0,Math.PI*2);ctx.fill();}ctx.restore();}else{ctx.strokeStyle=`rgba(184,222,221,${Math.max(0,1-(p.age-p.flight)/.6)})`;ctx.lineWidth=3;ctx.beginPath();ctx.arc(p.tx,p.ty,25+(p.age-p.flight)*90,0,Math.PI*2);ctx.stroke();}}
+ for(const p of projectiles){if(p.kind==='net'){if(p.age<p.flight){const t=p.age/p.flight;targetRing(p.tx,p.ty,t,BOAT_NET.radius,true);drawThrownNet(p.x,p.y-Math.sin(t*Math.PI)*155,BOAT_NET.radius*(.25+.75*t),.85);}else{drawThrownNet(p.tx,p.ty,BOAT_NET.radius,Math.max(0,1-(p.age-p.flight)/.65));}continue;}if(p.age<p.flight){targetRing(p.tx,p.ty,p.age/p.flight);const t=p.age/p.flight,lift=Math.sin(t*Math.PI)*155;ctx.save();ctx.translate(p.x,p.y);ctx.fillStyle='#06172288';ctx.beginPath();ctx.ellipse(0,0,14,7,0,0,Math.PI*2);ctx.fill();ctx.translate(0,-lift);ctx.rotate(p.age*9);if(p.kind==='chicken'){ctx.strokeStyle='#d9c6a5';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(-10,0);ctx.lineTo(11,0);ctx.stroke();ctx.fillStyle='#cb935b';ctx.beginPath();ctx.ellipse(8,0,13,9,-.3,0,Math.PI*2);ctx.fill();ctx.fillStyle='#f3ddaf';ctx.beginPath();ctx.arc(-12,-3,4,0,Math.PI*2);ctx.arc(-12,3,4,0,Math.PI*2);ctx.fill();}else{ctx.fillStyle='#a4b5b6';ctx.fillRect(-8,-12,16,24);ctx.fillStyle='#9e6650';ctx.fillRect(-8,-5,16,10);ctx.fillStyle='#d5dddd';ctx.beginPath();ctx.ellipse(0,-12,8,3,0,0,Math.PI*2);ctx.fill();}ctx.restore();}else{ctx.strokeStyle=`rgba(184,222,221,${Math.max(0,1-(p.age-p.flight)/.6)})`;ctx.lineWidth=3;ctx.beginPath();ctx.arc(p.tx,p.ty,25+(p.age-p.flight)*90,0,Math.PI*2);ctx.stroke();}}
 }
 function drawBridges(){for(const b of BRIDGES){const p=routePoint(b.i,b.t);ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.a+Math.PI/2);ctx.shadowColor='#07192466';ctx.shadowBlur=12;ctx.shadowOffsetY=12;ctx.fillStyle='#66716d';ctx.fillRect(-CHANNEL_RADIUS-65,-b.w/2,CHANNEL_RADIUS*2+130,b.w);ctx.shadowBlur=0;ctx.shadowOffsetY=0;ctx.strokeStyle='#b5b8a4';ctx.lineWidth=4;for(const side of [-1,1]){ctx.beginPath();ctx.moveTo(-CHANNEL_RADIUS-60,side*b.w/2);ctx.lineTo(CHANNEL_RADIUS+60,side*b.w/2);ctx.stroke();}ctx.strokeStyle='#d9dacb55';ctx.lineWidth=1;for(let x=-CHANNEL_RADIUS-50;x<CHANNEL_RADIUS+50;x+=22){ctx.beginPath();ctx.moveTo(x,-b.w/2);ctx.lineTo(x,b.w/2);ctx.stroke();}ctx.restore();label(b.name,p.x,p.y-52,19,'#dae0d0');}}
 function drawMinimap(){const mw=vw<600?112:160,mh=mw*H/W,x=vw-mw-18,y=136,scale=mw/W;ctx.save();ctx.translate(x,y);ctx.fillStyle='#061923dc';ctx.fillRect(-8,-8,mw+16,mh+35);ctx.strokeStyle='#7b9a9855';ctx.lineWidth=1;ctx.strokeRect(-8,-8,mw+16,mh+35);ctx.save();ctx.scale(scale,scale);if(chapter===1){ctx.fillStyle='#3a4d41';ctx.fillRect(0,0,W,H);drawWaterways(ctx,'#557e84',{banks:false});for(const k of keys)if(!k.taken){ctx.fillStyle='#f5d797';ctx.beginPath();ctx.arc(k.x,k.y,65,0,Math.PI*2);ctx.fill();}for(const p of throwers){ctx.fillStyle='#e79571';ctx.beginPath();ctx.arc(p.x,p.y,60,0,Math.PI*2);ctx.fill();}ctx.fillStyle='#afe7cf';ctx.beginPath();ctx.arc(gate.x,gate.y,65,0,Math.PI*2);ctx.fill();}else{ctx.fillStyle='#1c4355';ctx.fillRect(0,0,W,H);for(const f of fish)if(f.alive){ctx.fillStyle='#abc1b8';ctx.fillRect(f.x-25,f.y-25,50,50);}}if(chapter===1){for(const n of NETS){const p=netState(n,hazardClock);ctx.fillStyle=p.active?'#e4a173':'#a2d7b8';ctx.fillRect(p.x-45,p.y-45,90,90);}for(const p of [...patrols(hazardClock),...(chase?[chase]:[])]){ctx.fillStyle='#e5bd92';ctx.beginPath();ctx.arc(p.x,p.y,65,0,Math.PI*2);ctx.fill();}}ctx.translate(player.x,player.y);ctx.rotate(player.a);path([[100,0],[-70,-60],[-40,0],[-70,60]],'#fff7e5');ctx.restore();ctx.fillStyle='#a5babb';ctx.font='8px sans-serif';ctx.textAlign='left';ctx.fillText(chapter===1?'● 투척자 · ■ 그물 · ◆ 순찰':'OPEN WATER',0,mh+17);ctx.restore();}
