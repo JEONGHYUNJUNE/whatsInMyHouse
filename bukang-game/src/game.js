@@ -20,17 +20,17 @@ const W=WORLD.width,H=WORLD.height;let vw=0,vh=0,dpr=1,cam={x:0,y:0},time=0,last
 let player={x:220,y:1470,a:-Math.PI/2},keys=[],rocks=[],fish=[],particles=[];const held=new Set(),input={x:0,y:0},gate=EXIT;let joystickId=null;const bubbles=Array.from({length:90},()=>({x:Math.random()*W,y:Math.random()*H,r:Math.random()*2+1,s:Math.random()*10+5}));
 let people=[],throwers=[],projectiles=[],hazardClock=0,keyHold=0,velocity={x:0,y:0};
 const BOAT_NET={radius:125,damage:24,warning:1.25,flight:.85,range:850,cooldown:6.5};
-let boatNetStates=[],boatNetCooldown=0;
+let boatNetStates=[],boatNetCooldown=0,netSlow=0;
 let chase=null,chaseTrail=[],chaseDelay=0;
 let best=0;try{best=Number(localStorage.getItem('bukang-best-time-v2'))||0}catch{}$('best').textContent=best?`⏱ 내 최단 기록 ${formatTime(best)}`:'';
 let runToken=null,runStart=0,finishMs=null,registered=false,registering=false,runGeneration=0,boardGeneration=0,registeredName='';
 function resize(){vw=innerWidth;vh=innerHeight;dpr=Math.min(devicePixelRatio||1,2);canvas.width=vw*dpr;canvas.height=vh*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}addEventListener('resize',resize);resize();
 function toast(t){$('toast').textContent=t;$('toast').classList.add('show');toastTimer=3.5}
 function resetInput(){held.clear();input.x=input.y=0;joystickId=null;$('knob').style.transform=''}
-function hud(){ $('chapter').textContent=chapter===1?'CHAPTER 01 / HARD ESCAPE':'CHAPTER 02 / OPEN WATER';$('mission').textContent=chapter===1?(got===3?'마리나 탈출 · 추격 중':'수문의 열쇠를 찾아라'):'바다의 사냥꾼';$('progress').textContent=chapter===1?`열쇠 ${got} / 3 · 경계 ${alertLevel(got)}${keyHold>0?' · 확보 '+Math.floor(keyHold/2.2*100)+'%':''}`:`사냥 ${caught} / 8 · ${score} PT`;$('energy-fill').style.width=hp+'%';$('energy-value').textContent=Math.ceil(hp);$('health').classList.toggle('low',hp<=30);$('health').setAttribute('aria-valuenow',String(hp));$('attack').disabled=cooldown>0;}
+function hud(){ $('chapter').textContent=chapter===1?'CHAPTER 01 / HARD ESCAPE':'CHAPTER 02 / OPEN WATER';$('mission').textContent=chapter===1?(got===3?'마리나 탈출 · 추격 중':'수문의 열쇠를 찾아라'):'바다의 사냥꾼';$('progress').textContent=chapter===1?`열쇠 ${got} / 3 · 경계 ${alertLevel(got)}${netSlow>0?' · 그물 감속 '+netSlow.toFixed(1)+'초':''}${keyHold>0?' · 확보 '+Math.floor(keyHold/2.2*100)+'%':''}`:`사냥 ${caught} / 8 · ${score} PT`;$('energy-fill').style.width=hp+'%';$('energy-value').textContent=Math.ceil(hp);$('health').classList.toggle('low',hp<=30);$('health').setAttribute('aria-valuenow',String(hp));$('attack').disabled=cooldown>0;}
 function setup(ch){
  if(ch!==1)throw new Error('CHAPTER_2_COMING_SOON');
- chapter=ch;resetInput();cooldown=dash=invuln=0;hazardClock=0;keyHold=0;velocity={x:0,y:0};particles=[];projectiles=[];chase=null;chaseTrail=[];chaseDelay=0;boatNetStates=[];boatNetCooldown=2.5;
+ chapter=ch;resetInput();cooldown=dash=invuln=0;hazardClock=0;keyHold=0;velocity={x:0,y:0};particles=[];projectiles=[];chase=null;chaseTrail=[];chaseDelay=0;boatNetStates=[];boatNetCooldown=2.5;netSlow=0;
  if(ch===1){
   player={...SPAWN};got=0;keys=KEY_POINTS.map(p=>({...p,taken:false}));
   rocks=[{...routePoint(10,.6,100),r:44},{...routePoint(8,.25,-98),r:48},{...routePoint(6,.25,100),r:40},{...routePoint(5,.45,-108),r:42},{...routePoint(12,.6,-100),r:40},{...routePoint(3,.45,95),r:45},{...routePoint(2,.7,-100),r:48}];
@@ -62,7 +62,7 @@ $('start').onclick=start;$('pause').onclick=pause;$('continue').onclick=()=>moda
 const stick=$('stick');function moveStick(e){const r=stick.getBoundingClientRect(),dx=e.clientX-r.left-r.width/2,dy=e.clientY-r.top-r.height/2,max=r.width*.35,len=Math.hypot(dx,dy),s=Math.min(1,max/(len||1));input.x=dx*s/max;input.y=dy*s/max;$('knob').style.transform=`translate(${input.x*36}px,${input.y*36}px)`}
 stick.addEventListener('pointerdown',e=>{if(joystickId!==null)return;joystickId=e.pointerId;stick.setPointerCapture(e.pointerId);moveStick(e);e.preventDefault()});stick.addEventListener('pointermove',e=>{if(e.pointerId===joystickId)moveStick(e)});for(const ev of ['pointerup','pointercancel','lostpointercapture'])stick.addEventListener(ev,e=>{if(e.pointerId===joystickId){input.x=input.y=0;joystickId=null;$('knob').style.transform=''}});
 addEventListener('keydown',e=>{if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();held.add(e.key.toLowerCase());if(e.code==='Space')attack();if(e.key==='Escape'){if(state==='play')pause();else if(state==='modal'&&modalAction===resume)resume()}});addEventListener('keyup',e=>held.delete(e.key.toLowerCase()));addEventListener('blur',()=>{resetInput();pause()});document.addEventListener('visibilitychange',()=>{if(document.hidden){resetInput();pause()}});
-function update(dt){time+=dt;if(toastTimer>0){toastTimer-=dt;if(toastTimer<=0)$('toast').classList.remove('show')}if(state!=='play')return;elapsed+=dt;if(chapter===1)hazardClock+=dt;cooldown=Math.max(0,cooldown-dt);dash=Math.max(0,dash-dt);invuln=Math.max(0,invuln-dt);let x=input.x+(held.has('d')||held.has('arrowright')?1:0)-(held.has('a')||held.has('arrowleft')?1:0),y=input.y+(held.has('s')||held.has('arrowdown')?1:0)-(held.has('w')||held.has('arrowup')?1:0),l=Math.hypot(x,y);if(l>1){x/=l;y/=l}if(l>.08){let target=Math.atan2(y,x);player.a+=Math.atan2(Math.sin(target-player.a),Math.cos(target-player.a))*Math.min(1,dt*10)}const speed=dash>0?670:275;
+function update(dt){time+=dt;if(toastTimer>0){toastTimer-=dt;if(toastTimer<=0)$('toast').classList.remove('show')}if(state!=='play')return;elapsed+=dt;if(chapter===1)hazardClock+=dt;cooldown=Math.max(0,cooldown-dt);dash=Math.max(0,dash-dt);invuln=Math.max(0,invuln-dt);netSlow=Math.max(0,netSlow-dt);let x=input.x+(held.has('d')||held.has('arrowright')?1:0)-(held.has('a')||held.has('arrowleft')?1:0),y=input.y+(held.has('s')||held.has('arrowdown')?1:0)-(held.has('w')||held.has('arrowup')?1:0),l=Math.hypot(x,y);if(l>1){x/=l;y/=l}if(l>.08){let target=Math.atan2(y,x);player.a+=Math.atan2(Math.sin(target-player.a),Math.cos(target-player.a))*Math.min(1,dt*10)}const speed=(dash>0?670:275)*(netSlow>0?.5:1);
  velocity={x:(dash>0?Math.cos(player.a):x)*speed,y:(dash>0?Math.sin(player.a):y)*speed};
  const mx=(dash>0?Math.cos(player.a):x)*speed*dt,my=(dash>0?Math.sin(player.a):y)*speed*dt;
  // Sweep the movement so a dash cannot cross a thin quay or cut through a bend.
@@ -104,7 +104,7 @@ function updatePeople(dt){
  updateBoatNets(dt);
  for(const p of projectiles){p.age+=dt;const t=Math.min(1,p.age/p.flight);p.x=p.sx+(p.tx-p.sx)*t;p.y=p.sy+(p.ty-p.sy)*t;
   if(p.age>=p.flight&&!p.splashed){p.splashed=true;burst(p.tx,p.ty,'#bddcda',16);}
-  if(p.age>=p.flight&&!p.hit&&Math.hypot(player.x-p.tx,player.y-p.ty)<(p.kind==='net'?BOAT_NET.radius:70)){p.hit=true;takeDamage(p.kind==='net'?BOAT_NET.damage:p.kind==='chicken'?22:28,p.kind==='net'?'수색 그물에 맞았다 · 에너지 −24':p.kind==='chicken'?'닭고기에 맞았다 · 에너지 −22':'캔에 맞았다 · 에너지 −28');if(state!=='play')return;}
+  if(p.age>=p.flight&&!p.hit&&Math.hypot(player.x-p.tx,player.y-p.ty)<(p.kind==='net'?BOAT_NET.radius:70)){p.hit=true;const damaged=takeDamage(p.kind==='net'?BOAT_NET.damage:p.kind==='chicken'?22:28,p.kind==='net'?'그물에 걸렸다 · 에너지 −24 · 2초간 속도 감소':p.kind==='chicken'?'닭고기에 맞았다 · 에너지 −22':'캔에 맞았다 · 에너지 −28');if(damaged&&p.kind==='net'){netSlow=2;hud();}if(state!=='play')return;}
  }projectiles=projectiles.filter(p=>p.age<p.life);
 }
 function updateBoatNets(dt){
